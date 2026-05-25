@@ -56,6 +56,7 @@ echo "Creating wrapper script at $WRAPPER..."
 mkdir -p "$BIN_DIR"
 cat > "$WRAPPER" << 'WRAPPER_EOF'
 #!/bin/sh
+export PYTHONPATH="$HOME/.local/lib${PYTHONPATH:+:$PYTHONPATH}"
 exec python3 -m pop_translate "$@"
 WRAPPER_EOF
 chmod +x "$WRAPPER"

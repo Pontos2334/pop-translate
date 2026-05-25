@@ -32,13 +32,18 @@ def _classify_error(error):
     return ERROR_UNKNOWN, False
 
 
-def call_api(system_prompt, user_text, config):
-    payload = {
-        "model": config.model,
-        "messages": [
+def call_api(system_prompt, user_text, config, messages=None):
+    if messages is not None:
+        payload_messages = messages
+    else:
+        payload_messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_text},
-        ],
+        ]
+
+    payload = {
+        "model": config.model,
+        "messages": payload_messages,
         "temperature": 0.3,
         "max_tokens": 2048,
     }
