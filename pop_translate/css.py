@@ -336,8 +336,9 @@ scrollbar slider:hover {
     color: #ffffff;
     border-radius: 12px 12px 2px 12px;
     padding: 10px 14px;
-    font-size: 13px;
-    line-height: 1.5;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.6;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
@@ -346,10 +347,12 @@ scrollbar slider:hover {
     color: #18181b;
     border-radius: 12px 12px 12px 2px;
     padding: 10px 14px;
-    font-size: 13px;
-    line-height: 1.5;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.6;
     border: 1px solid #e4e4e7;
 }
+
 
 .chat-input-bar {
     padding: 10px 14px;

@@ -533,7 +533,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
     def _append_chat_bubble(self, role, text):
         label = Gtk.Label(label=text)
         label.set_wrap(True)
-        label.set_max_width_chars(45)
+        label.set_max_width_chars(65)
         label.set_xalign(0)
 
         align = Gtk.Box()
