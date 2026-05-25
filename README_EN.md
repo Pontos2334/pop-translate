@@ -6,7 +6,7 @@ A lightweight, beautiful AI-powered word selection translation and explanation t
 
 Select any text, press a global shortcut, and get instant translation, detailed explanation, or an interactive chat in a premium, hardware-accelerated macOS-style popup window.
 
-![screenshot](screenshot.png)
+![screenshot](screenshot_v2.png)
 
 ## ✨ Features
 

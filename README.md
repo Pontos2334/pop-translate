@@ -6,7 +6,7 @@
 
 选中任意文本，按下全局快捷键，即可在 macOS 风格的硬件加速窗口中，瞬间获得 AI 翻译、概念解析或进行多轮交互式对话。
 
-![screenshot](screenshot.png)
+![screenshot](screenshot_v2.png)
 
 ## ✨ 特性
 
