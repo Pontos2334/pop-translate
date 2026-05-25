@@ -4,7 +4,7 @@ import threading
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gtk, GLib
+from gi.repository import Gtk, Gio, GLib
 
 from .config import Config
 from .clipboard import get_selection
@@ -16,7 +16,10 @@ from .ui.setup_dialog import SetupDialog
 
 class TranslateApp(Gtk.Application):
     def __init__(self, text, config, history_db, default_tab):
-        super().__init__(application_id="com.translate.popup")
+        super().__init__(
+            application_id="com.translate.popup",
+            flags=Gio.ApplicationFlags.NON_UNIQUE,
+        )
         self.text = text
         self.config = config
         self.history_db = history_db
@@ -46,10 +49,13 @@ def main():
     config.load()
 
     if not config.has_api_key:
-        app = Gtk.Application(application_id="com.translate.popup")
+        app = Gtk.Application(
+            application_id="com.translate.popup",
+            flags=Gio.ApplicationFlags.NON_UNIQUE,
+        )
 
         def on_activate(application):
-            win = SetupDialog(config, lambda: None)
+            win = SetupDialog(config, application.quit)
             win.set_application(application)
             win.present()
 

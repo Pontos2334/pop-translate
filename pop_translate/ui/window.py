@@ -34,15 +34,28 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self.set_decorated(False)
         self.set_resizable(True)
         self.set_default_size(480, 320)
-        self.set_keep_above(True)
 
         self._load_css()
         self._build_ui()
         self._switch_tab(default_tab)
 
+        self.connect("close-request", self._on_close)
+        self.connect("realize", self._on_realize)
+
         key_ctrl = Gtk.EventControllerKey.new()
         key_ctrl.connect("key-pressed", self._on_key)
         self.add_controller(key_ctrl)
+
+    def _on_close(self, _window):
+        self.get_application().quit()
+        return False
+
+    def _on_realize(self, widget):
+        GLib.idle_add(self._focus_window)
+
+    def _focus_window(self):
+        self.present()
+        return False
 
     def _load_css(self):
         provider = Gtk.CssProvider()
@@ -68,6 +81,10 @@ class TranslateWindow(Gtk.ApplicationWindow):
     def _build_title_bar(self):
         title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         title_bar.set_css_classes(["title-bar"])
+        drag_gesture = Gtk.GestureClick.new()
+        drag_gesture.set_button(1)
+        drag_gesture.connect("pressed", self._on_title_bar_pressed)
+        title_bar.add_controller(drag_gesture)
 
         title_label = Gtk.Label(label=f" {APP_TITLE}")
         title_label.set_css_classes(["title-label"])
@@ -86,6 +103,14 @@ class TranslateWindow(Gtk.ApplicationWindow):
         title_bar.append(close_btn)
 
         self.outer.append(title_bar)
+
+    def _on_title_bar_pressed(self, gesture, n_press, x, y):
+        event = gesture.get_current_event()
+        device = event.get_device() if event else None
+        timestamp = event.get_time() if event else Gdk.CURRENT_TIME
+        surface = self.get_surface()
+        if surface and device:
+            surface.begin_move(device, 1, x, y, timestamp)
 
     def _build_tab_bar(self):
         self.tab_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
