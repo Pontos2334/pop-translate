@@ -1,61 +1,63 @@
 # Pop Translate
 
-A lightweight, beautiful AI-powered word selection translation and explanation tool for Linux (native GTK4, Wayland/X11 support).
+[English](./README_EN.md) | **中文**
 
-Select any text, press a global shortcut, and get instant translation, detailed explanation, or an interactive chat in a premium, hardware-accelerated macOS-style popup window.
+一款专为 Linux 设计的轻量、美观的 AI 划词翻译与解释工具（原生支持 GTK4，完美兼容 Wayland 与 X11）。
+
+选中任意文本，按下全局快捷键，即可在 macOS 风格的硬件加速窗口中，瞬间获得 AI 翻译、概念解析或进行多轮交互式对话。
 
 ![screenshot](screenshot.png)
 
-## ✨ Features
+## ✨ 特性
 
-- **🚀 GUI Initial Configuration** — No command-line setup required! If no API key is configured on first start, a beautiful GUI configuration wizard will guide you to set your API Key, API URL, and Model.
-- **🎨 Premium macOS Aesthetics** — Upgraded to a minimalist modern light theme featuring capsule pill navigation tab-switching, drop-shadow cards, clean grey borders, custom drop-downs, and a custom optimized font stack (`Inter`, `Cantarell`, `Roboto`, `思源黑体`).
-- **🗂️ Powerful Tabbed Workflow**:
-  - **Translate (翻译)** — Instant translation with smart bidirectional language detection (English ⇄ Chinese). Support for inline text editing to refine the source text.
-  - **Explain (解释)** — Get a detailed explanation of unfamiliar concepts, syntax, or words within a card layout.
-  - **Chat (对话)** — Thread-safe, interactive chat view. Ask follow-up questions about the selected text or translation.
-- **🧠 Thinking Mode support** — Supports enabling/disabling deep thinking (e.g., DeepSeek R1 / thinking schemas) with a single click or keyboard shortcut.
-- **⚡ Keyboard-First Navigation** — Operates entirely mouse-free. Easy-to-remember shortcuts for tab switching, copying, editing, and toggling options.
-- **📭 Dynamic Height Auto-Sizing** — Interactive multi-line inputs dynamically grow the window size gracefully when you type, and instantly snap back when the message is sent or cleared.
-- **🔒 Security & API Leak Protection** — Automatic redaction and sanitization of API keys, Bearer tokens, or generic `sk-` credentials in error messages or logs.
-- **💾 Local SQLite Caching** — Identical selection queries hit a local SQLite cache instantly, avoiding duplicate API calls. Auto-clears entries older than 24 hours to stay lightweight.
-- **🛸 Zero Idle Footprint** — Designed as a popup widget. Standard processes exit instantly upon closing, consuming zero background RAM.
-
----
-
-## ⌨️ Global & Local Keyboard Shortcuts
-
-Pop Translate is designed with keyboard-first users in mind. 
-
-### Local Window Shortcuts (when window is active):
-- `S` — Switch to **Translate (翻译)** Tab
-- `W` — Switch to **Explain (解释)** Tab
-- `C` — Switch to **Chat (对话)** Tab
-- `E` — **Edit (编辑)** original text
-- `R` — **Regenerate (重生成)** translation / explanation / chat message
-- `Y` — **Copy (复制)** translated text (only in Translate tab)
-- `F` — **Search (搜索)** selection online (opens in your default browser via Bing, or opens URL directly if selection is a URL)
-- `T` — **Toggle Thinking Mode (思考)**
-- `X` — **Toggle Context (上下文)** inclusion in Chat mode
-- `Esc` — **Close (关闭)** popup window
+- **🚀 图形化初次配置** — 告别繁琐的命令行！首次运行时若未配置 API Key，将自动弹出精致的配置向导，指引您填写 API 密钥、API 地址以及模型名称。
+- **🎨 极简 macOS 视觉美学** — 升级至现代黑白灰极简白色主题，配备精致的胶囊药丸式标签页、卡片阴影、钢灰色左边框、重绘下拉框以及专门优化的系统字体栈（`Inter`, `Cantarell`, `Roboto`, `思源黑体`）。
+- **🗂️ 三合一多功能工作流**：
+  - **翻译 (Translate)** — 智能中英文双向自动检测与互译。支持在窗口内直接编辑原文并重新翻译。
+  - **解释 (Explain)** — 在优雅的卡片布局中，对生词、学术术语或复杂概念提供详尽的 AI 深度解析。
+  - **对话 (Chat)** — 线程安全的交互式聊天气泡界面。针对选中的文本进行语法剖析、用法追问等深度交流。
+- **🧠 完美支持思考模式** — 支持一键切换/快捷键开启深度思考（如 DeepSeek R1 思考模型或推理模型），支持动态展示思考过程。
+- **⚡ 全键盘友好导航** — 专为效率极客打造，完全免鼠标操作。通过易记的快捷键进行切页、复制、重新生成与设置开关。
+- **📭 动态高度自适应** — 聊天输入框采用 TextView 多行文本设计，输入时视窗随行数增加平滑长高，发送或清空后即时缩回紧凑尺寸。
+- **🔒 敏感凭证防泄漏** — 内置 API 报错拦截与脱敏机制，自动通过正则红线过滤并隐藏报错日志中可能出现的 API Key、Bearer Token 等凭证，保障开源安全。
+- **💾 SQLite 本地智能缓存** — 相同文本的二次划词直接命中本地 SQLite 缓存，避免重复请求 API 产生资费；缓存记录超过 24 小时自动清理，保持轻量。
+- **🛸 极致轻量，零后台常驻** — 纯粹的弹窗工具设计，窗口关闭后所有子线程及应用进程立即安全退出，不占用任何后台系统内存。
 
 ---
 
-## 📦 Requirements
+## ⌨️ 键盘快捷键导航
 
-| Dependency | Purpose |
+为了极致的划词效率，Pop Translate 支持全键盘操作。
+
+### 本地窗口快捷键（窗口激活时有效）：
+- `S` — 切换至 **翻译** 标签页
+- `W` — 切换至 **解释** 标签页
+- `C` — 切换至 **对话** 标签页
+- `E` — **编辑** 原文
+- `R` — **重新生成** 当前内容（重译/重解释/重新发送对话）
+- `Y` — **复制** 译文（仅在翻译页有效）
+- `F` — **网络搜索** 选中文本（若选中的是 URL 则直接在默认浏览器中打开，否则使用 Bing 搜索）
+- `T` — **开启/关闭 思考模式**（Thinking Mode）
+- `X` — **开启/关闭 包含上下文**（仅在对话页有效）
+- `Esc` — **关闭** 翻译视窗
+
+---
+
+## 📦 依赖要求
+
+| 依赖项 | 用途 |
 |-----------|---------|
-| `python3` | Runtime |
-| `python-gobject` | GTK4 Python bindings |
-| `gtk4` | GUI toolkit |
-| `wl-clipboard` | Get selected text on Wayland |
-| `xclip` (optional) | Fallback for X11 selection |
+| `python3` | 运行环境 |
+| `python-gobject` | GTK4 Python 绑定库 |
+| `gtk4` | GUI 工具包 |
+| `wl-clipboard` | Wayland 划词剪贴板获取 |
+| `xclip` (可选) | X11 桌面环境兼容获取 |
 
 ---
 
-## 🚀 Quick Start
+## 🚀 快速开始
 
-### 1. Install dependencies
+### 1. 安装系统依赖
 
 **Arch Linux:**
 ```bash
@@ -72,60 +74,60 @@ sudo apt install python3 python3-gi gir1.2-gtk-4.0 wl-clipboard xclip
 sudo dnf install python3 python3-gobject gtk4 wl-clipboard xclip
 ```
 
-### 2. Install Pop Translate
+### 2. 安装 Pop Translate
 
-Clone the repository and run the installer script:
+克隆本仓库到本地，并运行安装脚本：
 ```bash
 ./install.sh
 ```
 
-### 3. Initialize & Configure
+### 3. 初始化配置
 
-Simply run `pop-translate` in your terminal or trigger it. 
+在终端直接输入并运行 `pop-translate`，或初次通过全局快捷键唤醒。
 
-If it's your first run, a setup wizard will appear:
-1. Enter your **API Key** (e.g. your DeepSeek or OpenAI key).
-2. Enter your **API URL** (Defaults to `https://api.deepseek.com/chat/completions`).
-3. Enter your **Model Name** (e.g. `deepseek-chat`).
-4. Click **Save** (保存).
+由于是首次启动，程序将为您呈现配置向导：
+1. 输入您的 **API Key**（支持任何兼容 OpenAI 格式的厂商，如 DeepSeek、OpenAI、月之暗面等）。
+2. 输入您的 **API 地址**（默认为 DeepSeek: `https://api.deepseek.com/chat/completions`）。
+3. 输入您的 **模型名称**（例如 `deepseek-chat` 或 `deepseek-reasoner`）。
+4. 点击 **保存**。
 
-Your configuration will be securely saved to `~/.config/pop-translate/config.json`.
+您的配置将安全地保存在本地 `~/.config/pop-translate/config.json` 中。
 
-*(Alternatively, you can configure them via environment variables `POP_TRANSLATE_API_KEY`, `POP_TRANSLATE_API_URL`, and `POP_TRANSLATE_MODEL` in your `.bashrc` or `.zshrc`)*
+*(当然，您也依然可以使用传统的环境变量方式，在 `.bashrc` 或 `.zshrc` 中导出 `POP_TRANSLATE_API_KEY`、`POP_TRANSLATE_API_URL` 和 `POP_TRANSLATE_MODEL`)*
 
-### 4. Configure Global Keyboard Shortcut
+### 4. 设置全局快捷键
 
 **KDE Plasma:**
-1. Open **System Settings** → **Shortcuts** → **Custom Shortcuts**.
-2. Click **Edit** → **New** → **Global Shortcut** → **Command/URL**.
-3. Name it `Pop Translate`.
-4. Trigger: Set your desired hotkey (e.g., `Ctrl+Alt+T`).
-5. Action: Enter `pop-translate`.
-6. Click **Apply**.
+1. 打开 **系统设置** → **快捷键** → **自定义快捷键**。
+2. 点击 **编辑** → **新建** → **全局快捷键** → **命令/URL**。
+3. 命名为 `Pop Translate`。
+4. 触发器：设置您习惯的全局热键（如 `Ctrl+Alt+T`）。
+5. 动作：输入命令 `pop-translate`。
+6. 点击 **应用**。
 
-**Other Desktops (GNOME, i3, Sway, Hyprland, etc.):**
-Bind the executable `pop-translate` to your preferred keyboard shortcut in your desktop environment or window manager settings.
+**其他桌面环境 (GNOME, i3, Sway, Hyprland, etc.):**
+在您的桌面环境或窗口管理器设置中，将可执行命令 `pop-translate` 绑定到您指定的全局快捷键即可。
 
 ---
 
-## 🛠️ Configuration Options
+## 🛠️ 配置环境变量选项
 
-All settings can be customized through the GUI setup or override via environment variables:
+如果您希望通过环境变量覆盖默认参数：
 
-| Variable | Default | Description |
+| 变量名 | 默认值 | 描述 |
 |----------|---------|-------------|
-| `POP_TRANSLATE_API_KEY` | *(Required)* | OpenAI-compatible API Key |
-| `POP_TRANSLATE_API_URL` | `https://api.deepseek.com/chat/completions` | API endpoint URL |
-| `POP_TRANSLATE_MODEL` | `deepseek-chat` | Model name |
+| `POP_TRANSLATE_API_KEY` | *(必填)* | OpenAI 兼容的 API 密钥 |
+| `POP_TRANSLATE_API_URL` | `https://api.deepseek.com/chat/completions` | API 终结点地址 |
+| `POP_TRANSLATE_MODEL` | `deepseek-chat` | 调用的模型名称 |
 
 ---
 
-## 🎨 Themes & Styling
+## 🎨 主题样式自定义
 
-The interface features custom styling located in `pop_translate/css.py`. It uses hardware-accelerated GTK4 CSS nodes. You can edit `css.py` to change themes, custom colors, roundness, or font families to match your Linux rice.
+界面样式完全基于 GTK4 CSS 硬件加速节点实现，核心样式位于 `pop_translate/css.py` 中。您可以自由修改该文件中的背景色、卡片阴影、圆角曲率或字体栈，以完美融入您 Linux 的桌面美化（Rice）风格。
 
 ---
 
-## 📄 License
+## 📄 开源许可
 
-Distributed under the **MIT License**. See `LICENSE` for details.
+本项目基于 **MIT License** 许可协议开源。详情请参阅 `LICENSE` 文件。
