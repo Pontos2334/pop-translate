@@ -472,8 +472,8 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
         scrolled_input = Gtk.ScrolledWindow()
         scrolled_input.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled_input.set_min_content_height(56)
-        scrolled_input.set_max_content_height(180)
+        scrolled_input.set_min_content_height(36)
+        scrolled_input.set_max_content_height(100)
         scrolled_input.set_propagate_natural_height(True)
         scrolled_input.set_hexpand(True)
         scrolled_input.set_focusable(False)

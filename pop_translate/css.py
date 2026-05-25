@@ -359,10 +359,9 @@ scrollbar slider:hover {
 
 .chat-input-bar scrolledwindow {
     border: 1px solid #d4d4d8;
-    border-radius: 8px;
+    border-radius: 6px;
     background-color: #ffffff;
     transition: all 0.15s ease;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 
 .chat-input-bar scrolledwindow:focus-within {
@@ -371,14 +370,13 @@ scrollbar slider:hover {
 }
 
 .chat-input-view {
-    font-size: 14px;
-    font-weight: 500;
-    line-height: 1.5;
-    padding: 8px 10px;
+    font-size: 13px;
+    padding: 6px 8px;
     background-color: #ffffff;
     color: #18181b;
     border: none;
 }
+
 
 
 
