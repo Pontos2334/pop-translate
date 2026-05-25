@@ -105,6 +105,11 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self.outer.append(title_bar)
 
     def _on_title_bar_pressed(self, gesture, n_press, x, y):
+        picked = gesture.get_widget().pick(x, y, Gtk.PickFlags.DEFAULT)
+        while picked:
+            if isinstance(picked, Gtk.Button):
+                return
+            picked = picked.get_parent()
         event = gesture.get_current_event()
         device = event.get_device() if event else None
         timestamp = event.get_time() if event else Gdk.CURRENT_TIME
