@@ -33,8 +33,8 @@ _EXPLAIN_PROMPT = (
 )
 
 _CHAT_SYSTEM_PROMPT = (
-    "你是一个翻译助手。用户选中了一段文字并已获得翻译结果。"
-    "请用中文回答用户关于这段文字的问题，例如翻译细节、语法、用法等。"
+    "你是一个翻译助手。用户选中了一段文字，可能已经有译文或解释作为上下文。"
+    "请基于已提供的上下文，用中文回答用户关于这段文字的问题，例如翻译细节、语法、用法等。"
     "不要使用 markdown 格式。"
 )
 
@@ -44,30 +44,61 @@ def _is_error(result):
     return any(result.startswith(p) for p in prefixes)
 
 
-def translate(text, config, history_db):
-    cached = history_db.lookup(text)
-    if cached:
-        return cached
-    result = call_api(_translate_prompt(text), text, config)
-    if not _is_error(result):
+def translate(text, config, history_db, model=None, thinking_enabled=False, use_cache=True):
+    if use_cache and not model and not thinking_enabled:
+        cached = history_db.lookup(text)
+        if cached:
+            return cached
+    result = call_api(
+        _translate_prompt(text),
+        text,
+        config,
+        model=model,
+        thinking_enabled=thinking_enabled,
+    )
+    if use_cache and not model and not thinking_enabled and not _is_error(result):
         history_db.save(text, result)
     return result
 
 
-def explain(text, config):
-    return call_api(_EXPLAIN_PROMPT, text, config)
+def explain(text, config, model=None, thinking_enabled=False):
+    return call_api(
+        _EXPLAIN_PROMPT,
+        text,
+        config,
+        model=model,
+        thinking_enabled=thinking_enabled,
+    )
 
 
-def chat(text, translated, explanation, chat_messages, user_input, config):
+def chat(
+    text,
+    translated,
+    explanation,
+    chat_messages,
+    user_input,
+    config,
+    model=None,
+    thinking_enabled=False,
+    include_context=True,
+):
     messages = [{"role": "system", "content": _CHAT_SYSTEM_PROMPT}]
-    context_parts = [f"原文：{text}"]
-    if translated:
-        context_parts.append(f"译文：{translated}")
-    if explanation:
-        context_parts.append(f"解释：{explanation}")
-    messages.append({"role": "user", "content": "上下文信息如下：\n" + "\n".join(context_parts)})
-    messages.append({"role": "assistant", "content": "好的，我已了解这段文字的翻译和解释，请问你有什么问题？"})
+    if include_context:
+        context_parts = [f"原文：{text}"]
+        if translated:
+            context_parts.append(f"译文：{translated}")
+        if explanation:
+            context_parts.append(f"解释：{explanation}")
+        messages.append({"role": "user", "content": "上下文信息如下：\n" + "\n".join(context_parts)})
+        messages.append({"role": "assistant", "content": "好的，我已了解这段文字的上下文，请问你有什么问题？"})
     for msg in chat_messages:
         messages.append(msg)
     messages.append({"role": "user", "content": user_input})
-    return call_api(None, None, config, messages=messages)
+    return call_api(
+        None,
+        None,
+        config,
+        messages=messages,
+        model=model,
+        thinking_enabled=thinking_enabled,
+    )

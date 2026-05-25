@@ -1,15 +1,13 @@
 import sys
-import threading
-
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gtk, Gio, GLib
+from gi.repository import Gtk, Gio
 
 from .config import Config
 from .clipboard import get_selection
 from .history import HistoryDB
-from .translate import translate, explain, should_translate
+from .translate import should_translate
 from .ui.window import TranslateWindow
 from .ui.setup_dialog import SetupDialog
 
@@ -28,20 +26,6 @@ class TranslateApp(Gtk.Application):
     def do_activate(self):
         self.win = TranslateWindow(self, self.text, self.config, self.history_db, self.default_tab)
         self.win.present()
-        GLib.idle_add(self._start_fetch)
-
-    def _start_fetch(self):
-        threading.Thread(target=self._fetch_translate, daemon=True).start()
-        threading.Thread(target=self._fetch_explain, daemon=True).start()
-        return False
-
-    def _fetch_translate(self):
-        result = translate(self.text, self.config, self.history_db)
-        GLib.idle_add(self.win.set_translation, result)
-
-    def _fetch_explain(self):
-        result = explain(self.text, self.config)
-        GLib.idle_add(self.win.set_explanation, result)
 
 
 def main():

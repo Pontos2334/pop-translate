@@ -32,7 +32,7 @@ def _classify_error(error):
     return ERROR_UNKNOWN, False
 
 
-def call_api(system_prompt, user_text, config, messages=None):
+def call_api(system_prompt, user_text, config, messages=None, model=None, thinking_enabled=False):
     if messages is not None:
         payload_messages = messages
     else:
@@ -42,10 +42,11 @@ def call_api(system_prompt, user_text, config, messages=None):
         ]
 
     payload = {
-        "model": config.model,
+        "model": model or config.model,
         "messages": payload_messages,
         "temperature": 0.3,
         "max_tokens": 2048,
+        "thinking": {"type": "enabled" if thinking_enabled else "disabled"},
     }
 
     data = json.dumps(payload).encode("utf-8")

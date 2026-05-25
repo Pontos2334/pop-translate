@@ -19,6 +19,10 @@ CSS = b"""
 .explain-body { color: #333; font-size: 14px; }
 .hint { color: #888; font-size: 14px; }
 .button-bar { margin-top: 12px; }
+.control-bar { margin-top: 10px; }
+.chat-control-bar { padding: 8px 12px; background: #fafafa; border-bottom: 1px solid #e8e8e8; }
+.model-select { font-size: 12px; min-width: 150px; }
+.thinking-toggle { font-size: 12px; color: #333; }
 .action-btn { font-size: 12px; padding: 4px 14px; border: 1px solid #d4d4d4; border-radius: 4px; background: #f5f5f5; color: #333; }
 .action-btn:hover { background: #e8e8e8; }
 .action-btn:disabled { color: #bbb; }
