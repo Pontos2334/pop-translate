@@ -815,7 +815,6 @@ class TranslateWindow(Gtk.ApplicationWindow):
             max_h = int(geo.height * 0.5)
         self._max_content_height = max(120, max_h - 110)
         self.set_default_size(480, -1)
-        self.resize(480, 1)
 
     def _truncate(self, text):
         max_chars = 300
