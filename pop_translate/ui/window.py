@@ -285,16 +285,18 @@ class TranslateWindow(Gtk.ApplicationWindow):
         return bar
 
     def _append_original(self, box):
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        card.set_css_classes(["orig-card"])
+
         orig = Gtk.Label(label=self._truncate(self.text))
         orig.set_css_classes(["orig"])
         orig.set_wrap(True)
         orig.set_xalign(0)
         orig.set_max_width_chars(55)
-        box.append(orig)
+        
+        card.append(orig)
+        box.append(card)
 
-        sep = Gtk.Box()
-        sep.set_css_classes(["sep"])
-        box.append(sep)
 
     def _ensure_explanation(self):
         if self._explain_loading or self.explanation:
