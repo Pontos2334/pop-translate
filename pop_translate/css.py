@@ -357,20 +357,30 @@ scrollbar slider:hover {
     background-color: #f4f4f5;
 }
 
-.chat-input {
-    font-size: 13px;
-    padding: 8px 12px;
+.chat-input-bar scrolledwindow {
     border: 1px solid #d4d4d8;
-    border-radius: 6px;
+    border-radius: 8px;
     background-color: #ffffff;
-    color: #18181b;
     transition: all 0.15s ease;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 
-.chat-input:focus {
+.chat-input-bar scrolledwindow:focus-within {
     border-color: #18181b;
     box-shadow: 0 0 0 2px rgba(24, 24, 27, 0.1);
 }
+
+.chat-input-view {
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.5;
+    padding: 8px 10px;
+    background-color: #ffffff;
+    color: #18181b;
+    border: none;
+}
+
+
 
 .chat-send {
     font-size: 12.5px;

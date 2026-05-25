@@ -470,12 +470,27 @@ class TranslateWindow(Gtk.ApplicationWindow):
         input_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         input_bar.set_css_classes(["chat-input-bar"])
 
-        self._chat_input = Gtk.Entry()
-        self._chat_input.set_css_classes(["chat-input"])
-        self._chat_input.set_hexpand(True)
-        self._chat_input.set_placeholder_text(CHAT_PLACEHOLDER)
-        self._chat_input.connect("activate", self._on_chat_send)
-        input_bar.append(self._chat_input)
+        scrolled_input = Gtk.ScrolledWindow()
+        scrolled_input.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled_input.set_min_content_height(56)
+        scrolled_input.set_max_content_height(180)
+        scrolled_input.set_propagate_natural_height(True)
+        scrolled_input.set_hexpand(True)
+        scrolled_input.set_focusable(False)
+
+        self._chat_input = Gtk.TextView()
+        self._chat_input.set_css_classes(["chat-input-view"])
+        self._chat_input.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self._chat_input.set_accepts_tab(False)
+
+        chat_key_ctrl = Gtk.EventControllerKey.new()
+        chat_key_ctrl.connect("key-pressed", self._on_chat_input_key)
+        self._chat_input.add_controller(chat_key_ctrl)
+
+        self._chat_input.get_buffer().connect("changed", self._on_chat_input_changed)
+
+        scrolled_input.set_child(self._chat_input)
+        input_bar.append(scrolled_input)
 
         self._chat_send_btn = Gtk.Button(label=BTN_SEND)
         self._chat_send_btn.set_css_classes(["chat-send"])
@@ -486,6 +501,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         vbox.append(input_bar)
         self.content_area.append(vbox)
         self._chat_input.grab_focus()
+
 
     def _on_chat_model_changed(self, dropdown, param):
         self._chat_model = self._selected_model(dropdown)
@@ -705,21 +721,30 @@ class TranslateWindow(Gtk.ApplicationWindow):
             return f"https://{candidate}"
         return f"https://www.bing.com/search?q={quote_plus(candidate)}"
 
+    def _on_chat_input_key(self, controller, keyval, keycode, state):
+        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            if state & (Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.CONTROL_MASK):
+                return False
+            self._on_chat_send(self._chat_input)
+            return True
+        return False
+
     def _on_chat_send(self, widget):
         if self._chat_loading:
             return
 
-        if isinstance(widget, Gtk.Button):
-            text = self._chat_input.get_text().strip()
-        else:
-            text = widget.get_text().strip()
+        buf = self._chat_input.get_buffer()
+        start = buf.get_start_iter()
+        end = buf.get_end_iter()
+        text = buf.get_text(start, end, False).strip()
 
         if not text:
             return
 
-        self._chat_input.set_text("")
+        buf.set_text("")
         self.chat_messages.append({"role": "user", "content": text})
         self._append_chat_bubble("user", text)
+
 
         self._chat_send_btn.set_sensitive(False)
         self._chat_loading = True
@@ -777,6 +802,9 @@ class TranslateWindow(Gtk.ApplicationWindow):
             self._resize_to_content()
         return False
 
+    def _on_chat_input_changed(self, buf):
+        self._resize_to_content()
+
     def _resize_to_content(self):
         display = Gdk.Display.get_default()
         monitors = display.get_monitors()
@@ -787,6 +815,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
             max_h = int(geo.height * 0.5)
         self._max_content_height = max(120, max_h - 110)
         self.set_default_size(480, -1)
+        self.resize(480, 1)
 
     def _truncate(self, text):
         max_chars = 300
