@@ -408,10 +408,11 @@ scrollbar slider:hover {
     box-shadow: 0 0 0 2px rgba(24, 24, 27, 0.1);
 }
 
-.chat-input-view {
+.chat-input-view,
+.chat-input-view text {
     font-size: 13px;
     padding: 6px 8px;
-    background-color: #ffffff;
+    background-color: transparent;
     color: #18181b;
     border: none;
 }
