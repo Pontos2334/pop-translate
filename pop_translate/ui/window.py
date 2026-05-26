@@ -57,6 +57,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._chat_thinking = False
         self._chat_include_context = True
         self._autoclose_timeout_id = None
+        self._ocr_bootstrapping = (text == "🔍 正在识别截取文字中，请稍候...")
 
         self.set_decorated(False)
         self.set_resizable(True)
@@ -124,6 +125,15 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
     def _on_realize(self, widget):
         GLib.idle_add(self._focus_window)
+        if hasattr(self, "_ocr_bootstrapping") and self._ocr_bootstrapping:
+            self._start_ocr_bootstrap_worker()
+
+    def _start_ocr_bootstrap_worker(self):
+        def worker():
+            from ..__main__ import ocr_image
+            text = ocr_image()
+            GLib.idle_add(self._on_screenshot_done, text)
+        threading.Thread(target=worker, daemon=True).start()
 
     def _focus_window(self):
         self.present()
@@ -180,6 +190,11 @@ class TranslateWindow(Gtk.ApplicationWindow):
         ocr_btn.connect("clicked", self._on_screenshot_ocr)
         title_bar.append(ocr_btn)
 
+        self.copy_orig_btn = Gtk.Button(label="复制原文")
+        self.copy_orig_btn.set_css_classes(["title-btn"])
+        self.copy_orig_btn.connect("clicked", self._on_copy_original)
+        title_bar.append(self.copy_orig_btn)
+
         close_btn = Gtk.Button(label="✕")
         close_btn.set_css_classes(["close-btn"])
         close_btn.connect("clicked", lambda b: self.close())
@@ -207,15 +222,35 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
     def _start_screenshot_worker(self):
         def worker():
-            from ..__main__ import perform_local_ocr
-            text = perform_local_ocr()
-            GLib.idle_add(self._on_screenshot_done, text)
+            from ..__main__ import capture_screenshot, ocr_image
+            success = capture_screenshot()
+            if success:
+                GLib.idle_add(self._on_screenshot_captured)
+                text = ocr_image()
+                GLib.idle_add(self._on_screenshot_done, text)
+            else:
+                GLib.idle_add(self.show)
         threading.Thread(target=worker, daemon=True).start()
         return False
 
+    def _on_screenshot_captured(self):
+        self._ocr_bootstrapping = True
+        self._reset_autoclose_timer()
+        self.show()
+        self._switch_tab(self._current_tab)
+
     def _on_screenshot_done(self, text):
+        self._ocr_bootstrapping = False
+        self._reset_autoclose_timer()
         self.show()
         if not text:
+            # Show empty translate tab if no text was captured
+            self.original_text = ""
+            self.text = ""
+            self.translated = ""
+            self.explanation = ""
+            self.chat_messages = []
+            self._switch_tab("translate")
             return
             
         self.original_text = text
@@ -230,6 +265,43 @@ class TranslateWindow(Gtk.ApplicationWindow):
             from ..translate import should_translate
             tab_id = "translate" if should_translate(text) else "explain"
             self._switch_tab(tab_id)
+
+    def _show_ocr_loading_state(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        box.set_css_classes(["content-box"])
+        self._loading_label = Gtk.Label(label="🔍 正在识别截取文字中，请稍候...")
+        self._loading_label.set_css_classes(["hint"])
+        self._loading_label.set_wrap(True)
+        self._loading_label.set_xalign(0)
+        box.append(self._loading_label)
+        self.content_area.append(self._wrap_scroll(box))
+
+    def _on_copy_original(self, btn):
+        text = self.text
+        if not text or text == "🔍 正在识别截取文字中，请稍候...":
+            return
+        
+        btn.set_label("已复制!")
+        btn.set_sensitive(False)
+
+        def worker():
+            try:
+                subprocess.run(
+                    ["wl-copy", text],
+                    capture_output=True,
+                    timeout=2,
+                    env={**os.environ, "WAYLAND_DISPLAY": os.environ.get("WAYLAND_DISPLAY", "")},
+                )
+            except Exception:
+                pass
+            
+            def reset_btn():
+                btn.set_label("复制原文")
+                btn.set_sensitive(True)
+                return False
+            GLib.timeout_add_seconds(1, reset_btn)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _build_tab_bar(self):
         self.tab_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -271,6 +343,11 @@ class TranslateWindow(Gtk.ApplicationWindow):
                 btn.remove_css_class("active")
 
         self._clear_content()
+
+        if hasattr(self, "_ocr_bootstrapping") and self._ocr_bootstrapping:
+            self._show_ocr_loading_state()
+            self._resize_to_content()
+            return
 
         if tab_id == "translate":
             self._show_translate_tab()

@@ -17,9 +17,8 @@ from .ui.setup_dialog import SetupDialog
 _EASYOCR_READER = None
 
 
-def perform_local_ocr():
-    global _EASYOCR_READER
-    # 1. Capture screen region using spectacle
+def capture_screenshot():
+    import time
     tmp_img = "/tmp/pop_translate_ocr.png"
     if os.path.exists(tmp_img):
         try:
@@ -27,15 +26,45 @@ def perform_local_ocr():
         except Exception:
             pass
             
-    # Run spectacle in background mode to capture region
     try:
-        subprocess.run([
+        # Launch spectacle as a non-blocking background process to capture region
+        proc = subprocess.Popen([
             "spectacle", "-r", "-b", "-o", tmp_img
-        ], check=True)
+        ])
     except Exception as e:
         print(f"截图失败: {e}", file=sys.stderr)
-        return ""
+        return False
         
+    # Poll for the screenshot file to be created and written
+    start_time = time.time()
+    timeout = 120.0  # 2 minutes timeout for the user to make a selection
+    
+    while time.time() - start_time < timeout:
+        # If spectacle exited prematurely and file doesn't exist, user cancelled
+        if proc.poll() is not None:
+            if not os.path.exists(tmp_img):
+                return False
+                
+        if os.path.exists(tmp_img):
+            # Wait a tiny bit to make sure spectacle finished flushing the file to disk
+            time.sleep(0.1)
+            if os.path.getsize(tmp_img) > 0:
+                return True
+                
+        time.sleep(0.05)
+        
+    # Timeout reached; terminate the process if still running
+    if proc.poll() is None:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+    return False
+
+
+def ocr_image():
+    global _EASYOCR_READER
+    tmp_img = "/tmp/pop_translate_ocr.png"
     if not os.path.exists(tmp_img):
         return ""
         
@@ -75,7 +104,7 @@ def perform_local_ocr():
             text = res.stdout.strip()
         except Exception as e:
             print(f"OCR 识别失败: {e}", file=sys.stderr)
-            return ""
+            text = ""
             
     # Clean up tmp image
     try:
@@ -84,6 +113,12 @@ def perform_local_ocr():
         pass
         
     return text
+
+
+def perform_local_ocr():
+    if capture_screenshot():
+        return ocr_image()
+    return ""
 
 
 class TranslateApp(Gtk.Application):
@@ -124,16 +159,20 @@ def main():
     # Check for CLI OCR flag
     text = ""
     if "--ocr" in sys.argv or "-o" in sys.argv:
-        text = perform_local_ocr()
-        if not text:
+        if not capture_screenshot():
             sys.exit(0)
+        # Boot the window instantly using a special loading text
+        text = "🔍 正在识别截取文字中，请稍候..."
+        default_tab = "translate"
     else:
         text = get_selection()
         if not text:
             sys.exit(0)
 
     # Route automatically to Explain if code or error message is detected
-    if is_code_or_error(text):
+    if text == "🔍 正在识别截取文字中，请稍候...":
+        default_tab = "translate"
+    elif is_code_or_error(text):
         default_tab = "explain"
     else:
         default_tab = "translate" if should_translate(text) else "explain"
