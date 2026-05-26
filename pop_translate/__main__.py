@@ -74,7 +74,7 @@ def ocr_image():
         if _EASYOCR_READER is None:
             # Initializes EasyOCR and automatically handles GPU (CUDA/ROCm) vs CPU detection
             _EASYOCR_READER = easyocr.Reader(['ch_sim', 'en'], verbose=False)
-        result = _EASYOCR_READER.readtext(tmp_img, detail=0)
+        result = _EASYOCR_READER.readtext(tmp_img, detail=0, paragraph=True)
         text = "\n".join(result).strip()
         
         # Clean up tmp image
