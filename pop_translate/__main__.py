@@ -14,7 +14,11 @@ from .ui.window import TranslateWindow
 from .ui.setup_dialog import SetupDialog
 
 
+_EASYOCR_READER = None
+
+
 def perform_local_ocr():
+    global _EASYOCR_READER
     # 1. Capture screen region using spectacle
     tmp_img = "/tmp/pop_translate_ocr.png"
     if os.path.exists(tmp_img):
@@ -35,8 +39,28 @@ def perform_local_ocr():
     if not os.path.exists(tmp_img):
         return ""
         
-    # 2. Run local OCR using tesseract
-    # Fallback: try Eng+Chi_Sim first. If it fails, fallback to standard tesseract eng (or whichever is installed)
+    # 2. Try EasyOCR first (GPU/CPU accelerated, highly accurate)
+    try:
+        import easyocr
+        if _EASYOCR_READER is None:
+            # Initializes EasyOCR and automatically handles GPU (CUDA/ROCm) vs CPU detection
+            _EASYOCR_READER = easyocr.Reader(['ch_sim', 'en'], verbose=False)
+        result = _EASYOCR_READER.readtext(tmp_img, detail=0)
+        text = "\n".join(result).strip()
+        
+        # Clean up tmp image
+        try:
+            os.remove(tmp_img)
+        except Exception:
+            pass
+        return text
+    except ImportError:
+        # EasyOCR not installed, fallback silently to Tesseract
+        pass
+    except Exception as e:
+        print(f"EasyOCR 识别出错 (将使用 Tesseract 备用): {e}", file=sys.stderr)
+
+    # 3. Run local OCR using tesseract (CPU only, fallback)
     try:
         res = subprocess.run([
             "tesseract", tmp_img, "stdout", "-l", "eng+chi_sim"
