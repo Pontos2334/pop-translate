@@ -56,6 +56,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._explain_thinking = False
         self._chat_thinking = False
         self._chat_include_context = True
+        self._autoclose_timeout_id = None
 
         self.set_decorated(False)
         self.set_resizable(True)
@@ -72,8 +73,53 @@ class TranslateWindow(Gtk.ApplicationWindow):
         key_ctrl.connect("key-pressed", self._on_key)
         self.add_controller(key_ctrl)
 
+        # Auto-Close: Reset timer on keyboard input (using CAPTURE phase to see all keystrokes)
+        key_capture_ctrl = Gtk.EventControllerKey.new()
+        key_capture_ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        key_capture_ctrl.connect("key-pressed", lambda ctrl, kv, kc, st: self._reset_autoclose_timer())
+        self.add_controller(key_capture_ctrl)
+
+        # Auto-Close: Reset timer on mouse motion
+        motion_ctrl = Gtk.EventControllerMotion.new()
+        motion_ctrl.connect("motion", self._reset_autoclose_timer)
+        self.add_controller(motion_ctrl)
+
+        # Auto-Close: Reset timer on click
+        click_ctrl = Gtk.GestureClick.new()
+        click_ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        click_ctrl.connect("pressed", self._reset_autoclose_timer_click)
+        self.add_controller(click_ctrl)
+
+        # Start initial autoclose timer
+        self._start_autoclose_timer()
+
     def _on_close(self, _window):
+        self._stop_autoclose_timer()
         self.get_application().quit()
+        return False
+
+    def _start_autoclose_timer(self):
+        self._stop_autoclose_timer()
+        self._autoclose_timeout_id = GLib.timeout_add_seconds(
+            180, self._on_autoclose_timeout
+        )
+
+    def _stop_autoclose_timer(self):
+        if hasattr(self, "_autoclose_timeout_id") and self._autoclose_timeout_id:
+            GLib.source_remove(self._autoclose_timeout_id)
+            self._autoclose_timeout_id = None
+
+    def _reset_autoclose_timer(self, *args):
+        self._start_autoclose_timer()
+        return False
+
+    def _reset_autoclose_timer_click(self, gesture, n_press, x, y):
+        self._start_autoclose_timer()
+        return False
+
+    def _on_autoclose_timeout(self):
+        self._autoclose_timeout_id = None
+        self.close()
         return False
 
     def _on_realize(self, widget):
@@ -851,6 +897,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         return False
 
     def _on_key(self, controller, keyval, keycode, state):
+        self._reset_autoclose_timer()
         if keyval == Gdk.KEY_Escape:
             if self._editing:
                 self._on_edit_cancel(self.edit_btn)

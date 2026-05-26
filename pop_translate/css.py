@@ -59,6 +59,12 @@ CSS = b"""
     border-color: #a1a1aa;
 }
 
+.title-btn:backdrop {
+    color: #71717a;
+    background-color: #ffffff;
+    border-color: #e4e4e7;
+}
+
 .close-btn {
     color: #71717a;
     font-size: 13px;
@@ -267,6 +273,12 @@ dropdown.model-select button arrow {
     box-shadow: none;
 }
 
+.action-btn:backdrop {
+    color: #71717a;
+    background-color: #ffffff;
+    border-color: #e4e4e7;
+}
+
 /* Matte Graphite/Black for Primary Buttons - Peak Sophociation */
 .action-btn.primary {
     color: #ffffff;
@@ -275,10 +287,28 @@ dropdown.model-select button arrow {
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
+.action-btn.primary label {
+    color: #ffffff;
+}
+
 .action-btn.primary:hover {
     background-color: #27272a;
     border-color: #27272a;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
+}
+
+.action-btn.primary:hover label {
+    color: #ffffff;
+}
+
+.action-btn.primary:backdrop {
+    color: #ffffff;
+    background-color: #18181b;
+    border-color: #18181b;
+}
+
+.action-btn.primary:backdrop label {
+    color: #ffffff;
 }
 
 /* Elegant Ocean Accent for Copy Button */
@@ -292,6 +322,12 @@ dropdown.model-select button arrow {
     color: #ffffff;
     background-color: #0969da;
     border-color: #0969da;
+}
+
+.action-btn.copy:backdrop {
+    color: #0969da;
+    border-color: rgba(9, 105, 218, 0.10);
+    background-color: rgba(9, 105, 218, 0.03);
 }
 
 /* Custom Styled Scrollbar (Thin macOS Style) */
@@ -396,9 +432,17 @@ scrollbar slider:hover {
     transition: all 0.15s ease;
 }
 
+.chat-send label {
+    color: #ffffff;
+}
+
 .chat-send:hover {
     background-color: #27272a;
     border-color: #27272a;
+}
+
+.chat-send:hover label {
+    color: #ffffff;
 }
 
 .chat-send:disabled {
@@ -406,6 +450,20 @@ scrollbar slider:hover {
     color: #d4d4d8;
     border-color: #e4e4e7;
     box-shadow: none;
+}
+
+.chat-send:disabled label {
+    color: #d4d4d8;
+}
+
+.chat-send:backdrop {
+    color: #ffffff;
+    background-color: #18181b;
+    border-color: #18181b;
+}
+
+.chat-send:backdrop label {
+    color: #ffffff;
 }
 
 /* Setup Dialog Specific Polish */
@@ -451,9 +509,27 @@ scrollbar slider:hover {
     transition: all 0.15s ease;
 }
 
+.setup-save label {
+    color: #ffffff;
+}
+
 .setup-save:hover {
     background-color: #27272a;
     border-color: #27272a;
+}
+
+.setup-save:hover label {
+    color: #ffffff;
+}
+
+.setup-save:backdrop {
+    color: #ffffff;
+    background-color: #18181b;
+    border-color: #18181b;
+}
+
+.setup-save:backdrop label {
+    color: #ffffff;
 }
 
 .setup-cancel {
@@ -470,6 +546,12 @@ scrollbar slider:hover {
 .setup-cancel:hover {
     background-color: #f4f4f5;
     border-color: #a1a1aa;
+}
+
+.setup-cancel:backdrop {
+    color: #71717a;
+    background-color: #ffffff;
+    border-color: #e4e4e7;
 }
 
 .error-hint {
