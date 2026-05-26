@@ -1,4 +1,6 @@
 import sys
+import os
+import subprocess
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
@@ -7,9 +9,57 @@ from gi.repository import Gtk, Gio
 from .config import Config
 from .clipboard import get_selection
 from .history import HistoryDB
-from .translate import should_translate
+from .translate import should_translate, is_code_or_error
 from .ui.window import TranslateWindow
 from .ui.setup_dialog import SetupDialog
+
+
+def perform_local_ocr():
+    # 1. Capture screen region using spectacle
+    tmp_img = "/tmp/pop_translate_ocr.png"
+    if os.path.exists(tmp_img):
+        try:
+            os.remove(tmp_img)
+        except Exception:
+            pass
+            
+    # Run spectacle in background mode to capture region
+    try:
+        subprocess.run([
+            "spectacle", "-r", "-b", "-o", tmp_img
+        ], check=True)
+    except Exception as e:
+        print(f"截图失败: {e}", file=sys.stderr)
+        return ""
+        
+    if not os.path.exists(tmp_img):
+        return ""
+        
+    # 2. Run local OCR using tesseract
+    # Fallback: try Eng+Chi_Sim first. If it fails, fallback to standard tesseract eng (or whichever is installed)
+    try:
+        res = subprocess.run([
+            "tesseract", tmp_img, "stdout", "-l", "eng+chi_sim"
+        ], capture_output=True, text=True, check=True)
+        text = res.stdout.strip()
+    except Exception:
+        try:
+            # Fallback to default local language data
+            res = subprocess.run([
+                "tesseract", tmp_img, "stdout"
+            ], capture_output=True, text=True, check=True)
+            text = res.stdout.strip()
+        except Exception as e:
+            print(f"OCR 识别失败: {e}", file=sys.stderr)
+            return ""
+            
+    # Clean up tmp image
+    try:
+        os.remove(tmp_img)
+    except Exception:
+        pass
+        
+    return text
 
 
 class TranslateApp(Gtk.Application):
@@ -47,11 +97,23 @@ def main():
         app.run(None)
         sys.exit(0)
 
-    text = get_selection()
-    if not text:
-        sys.exit(0)
+    # Check for CLI OCR flag
+    text = ""
+    if "--ocr" in sys.argv or "-o" in sys.argv:
+        text = perform_local_ocr()
+        if not text:
+            sys.exit(0)
+    else:
+        text = get_selection()
+        if not text:
+            sys.exit(0)
 
-    default_tab = "translate" if should_translate(text) else "explain"
+    # Route automatically to Explain if code or error message is detected
+    if is_code_or_error(text):
+        default_tab = "explain"
+    else:
+        default_tab = "translate" if should_translate(text) else "explain"
+
     history_db = HistoryDB()
     app = TranslateApp(text, config, history_db, default_tab)
     sys.exit(app.run(None))

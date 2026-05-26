@@ -1,3 +1,4 @@
+import re
 from .api import call_api
 from .history import HistoryDB
 
@@ -14,6 +15,59 @@ def _english_ratio(text):
 
 def should_translate(text):
     return _english_ratio(text) > 0.5
+
+
+_CODE_PATTERNS = [
+    r"\bdef\s+\w+\b",
+    r"\bclass\s+\w+\b",
+    r"\bimport\s+\w+\b",
+    r"\bfrom\s+\w+\s+import\b",
+    r"\bpublic\s+static\s+void\b",
+    r"\bconst\s+\w+\s*=",
+    r"\blet\s+\w+\s*=",
+    r"\bvar\s+\w+\s*=",
+    r"\bstruct\s+\w+\b",
+    r"\bfn\s+\w+\b",
+    r"#include\s+<\w+>",
+    r"\busing\s+namespace\s+\w+",
+    r"\bconsole\.log\b",
+    r"\bprint\s*\(",
+    r"\bprintf\s*\(",
+    r"^[ \t]*{",
+    r"^[ \t]*}",
+    r"\bSyntaxError\b",
+    r"\bTypeError\b",
+    r"\bValueError\b",
+    r"\bIndexError\b",
+    r"\bKeyError\b",
+    r"\bAttributeError\b",
+    r"\bException\b",
+    r"\bTraceback\s*\(most\s+recent\s+call\s+last\)",
+    r"\bNullPointerException\b",
+    r"\bWarning\b",
+    r"failed\s+to\s+load",
+    r"\bCRITICAL\b",
+    r"\bFATAL\b",
+]
+
+
+def is_code_or_error(text):
+    if not text:
+        return False
+    for pattern in _CODE_PATTERNS:
+        # Ignore case for error/warning/traceback/failed related queries
+        flags = re.IGNORECASE if any(x in pattern.lower() for x in ("error", "traceback", "failed", "warning")) else 0
+        if re.search(pattern, text, flags):
+            return True
+            
+    # Indentation heuristic for multiline code snippets
+    lines = text.split("\n")
+    if len(lines) > 2:
+        indent_count = sum(1 for line in lines if line.startswith("    ") or line.startswith("\t"))
+        if indent_count / len(lines) > 0.4:
+            return True
+            
+    return False
 
 
 def _translate_prompt(text):
@@ -61,9 +115,19 @@ def translate(text, config, history_db, model=None, thinking_enabled=False, use_
     return result
 
 
+_CODE_EXPLAIN_PROMPT = (
+    "You are a Senior Software Engineer. The user has provided a snippet of code or an error message. "
+    "Explain it clearly in 中文:\n"
+    "1. For code snippet: explain what the code does, analyze its logic, and suggest any potential optimizations.\n"
+    "2. For error message: analyze why the error occurred, explain the root cause, and provide a step-by-step fix with corrected code examples.\n"
+    "Use clean structure. Output only the explanation. Do NOT use markdown formatting (keep text plain but structured)."
+)
+
+
 def explain(text, config, model=None, thinking_enabled=False):
+    prompt = _CODE_EXPLAIN_PROMPT if is_code_or_error(text) else _EXPLAIN_PROMPT
     return call_api(
-        _EXPLAIN_PROMPT,
+        prompt,
         text,
         config,
         model=model,

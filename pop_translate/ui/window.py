@@ -16,7 +16,7 @@ from ..i18n import (
     TAB_TRANSLATE, TAB_EXPLAIN, TAB_CHAT,
     SHORTCUT_HINT, CHAT_PLACEHOLDER, CHAT_THINKING,
 )
-from ..translate import translate, explain, chat as do_chat
+from ..translate import translate, explain, chat as do_chat, is_code_or_error
 
 MODELS = ("deepseek-v4-flash", "deepseek-v4-pro")
 DEFAULT_MODEL = "deepseek-v4-flash"
@@ -175,6 +175,11 @@ class TranslateWindow(Gtk.ApplicationWindow):
         search_btn.connect("clicked", self._on_search)
         title_bar.append(search_btn)
 
+        ocr_btn = Gtk.Button(label="截图")
+        ocr_btn.set_css_classes(["title-btn"])
+        ocr_btn.connect("clicked", self._on_screenshot_ocr)
+        title_bar.append(ocr_btn)
+
         close_btn = Gtk.Button(label="✕")
         close_btn.set_css_classes(["close-btn"])
         close_btn.connect("clicked", lambda b: self.close())
@@ -194,6 +199,37 @@ class TranslateWindow(Gtk.ApplicationWindow):
         surface = self.get_surface()
         if surface and device:
             surface.begin_move(device, 1, x, y, timestamp)
+
+    def _on_screenshot_ocr(self, button):
+        self.hide()
+        # Defer screen capture slightly to ensure window has vanished from screen
+        GLib.timeout_add(250, self._start_screenshot_worker)
+
+    def _start_screenshot_worker(self):
+        def worker():
+            from ..__main__ import perform_local_ocr
+            text = perform_local_ocr()
+            GLib.idle_add(self._on_screenshot_done, text)
+        threading.Thread(target=worker, daemon=True).start()
+        return False
+
+    def _on_screenshot_done(self, text):
+        self.show()
+        if not text:
+            return
+            
+        self.original_text = text
+        self.text = text
+        self.translated = ""
+        self.explanation = ""
+        self.chat_messages = []
+        
+        if is_code_or_error(text):
+            self._switch_tab("explain")
+        else:
+            from ..translate import should_translate
+            tab_id = "translate" if should_translate(text) else "explain"
+            self._switch_tab(tab_id)
 
     def _build_tab_bar(self):
         self.tab_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
