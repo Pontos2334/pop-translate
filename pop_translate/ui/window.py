@@ -2,6 +2,7 @@ import subprocess
 import os
 import re
 import threading
+import time
 from urllib.parse import quote_plus, urlparse
 
 import gi
@@ -15,8 +16,10 @@ from ..i18n import (
     BTN_COPY, BTN_COPIED, BTN_EDIT, BTN_RETRANSLATE, BTN_REEXPLAIN, BTN_CANCEL, BTN_SEND,
     TAB_TRANSLATE, TAB_EXPLAIN, TAB_CHAT,
     SHORTCUT_HINT, CHAT_PLACEHOLDER, CHAT_THINKING,
+    SPEED_LABEL, TOKENS_LABEL, TIME_LABEL, THINKING_HEADER,
 )
-from ..translate import translate, explain, chat as do_chat, is_code_or_error
+from ..translate import chat as do_chat, is_code_or_error, _translate_prompt, _EXPLAIN_PROMPT, _CODE_EXPLAIN_PROMPT, _is_error
+from ..api import call_api_stream
 
 MODELS = ("deepseek-v4-flash", "deepseek-v4-pro")
 DEFAULT_MODEL = "deepseek-v4-flash"
@@ -58,6 +61,16 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._chat_include_context = True
         self._autoclose_timeout_id = None
         self._ocr_bootstrapping = (text == "🔍 正在识别截取文字中，请稍候...")
+
+        # 流式输出相关状态
+        self._streaming = False
+        self._stream_buffer = ""
+        self._thinking_buffer = ""
+        self._token_count = 0
+        self._start_time = 0.0
+        self._speed_label = None
+        self._thinking_label = None
+        self._result_label = None
 
         self.set_decorated(False)
         self.set_resizable(True)
@@ -333,6 +346,9 @@ class TranslateWindow(Gtk.ApplicationWindow):
                 break
             self.content_area.remove(child)
         self._loading_label = None
+        self._result_label = None
+        self._speed_label = None
+        self._thinking_label = None
 
     def _switch_tab(self, tab_id):
         self._current_tab = tab_id
@@ -365,27 +381,11 @@ class TranslateWindow(Gtk.ApplicationWindow):
     def _ensure_translation(self):
         if self._translate_loading or self.translated:
             return
-        self._start_translation(self._api_model(self._translate_model), False, True)
+        self._start_translation_stream(self._api_model(self._translate_model), False, True)
 
     def _start_translation(self, model, thinking_enabled, use_cache):
-        text = self.text
-        self._translate_loading = True
-        self._translate_request_text = text
-        self._translate_request_model = model
-        self._translate_request_thinking = thinking_enabled
-
-        def worker():
-            result = translate(
-                text,
-                self.config,
-                self.history_db,
-                model=model,
-                thinking_enabled=thinking_enabled,
-                use_cache=use_cache,
-            )
-            GLib.idle_add(self._on_translate_done, text, model, thinking_enabled, result)
-
-        threading.Thread(target=worker, daemon=True).start()
+        # 使用流式版本
+        self._start_translation_stream(model, thinking_enabled, use_cache)
 
     def _initial_model(self):
         return self.config.model if self.config.model in MODELS else DEFAULT_MODEL
@@ -460,20 +460,11 @@ class TranslateWindow(Gtk.ApplicationWindow):
     def _ensure_explanation(self):
         if self._explain_loading or self.explanation:
             return
-        self._start_explanation(self._api_model(self._explain_model), False)
+        self._start_explanation_stream(self._api_model(self._explain_model), False)
 
     def _start_explanation(self, model, thinking_enabled):
-        text = self.text
-        self._explain_loading = True
-        self._explain_request_text = text
-        self._explain_request_model = model
-        self._explain_request_thinking = thinking_enabled
-
-        def worker():
-            result = explain(text, self.config, model=model, thinking_enabled=thinking_enabled)
-            GLib.idle_add(self._on_explain_done, text, model, thinking_enabled, result)
-
-        threading.Thread(target=worker, daemon=True).start()
+        # 使用流式版本
+        self._start_explanation_stream(model, thinking_enabled)
 
     def _show_translate_tab(self):
         if self._editing:
@@ -484,23 +475,51 @@ class TranslateWindow(Gtk.ApplicationWindow):
         box.set_css_classes(["content-box"])
         self._append_original(box)
 
-        if self.translated:
-            result = Gtk.Label(label=self.translated)
-            result.set_css_classes(["result"])
-            result.set_wrap(True)
-            result.set_xalign(0)
-            result.set_max_width_chars(55)
-            box.append(result)
+        # 思考过程区域（如果有）
+        if self._thinking_buffer:
+            thinking_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            thinking_box.set_css_classes(["thinking-box"])
 
-            btn_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            btn_bar.set_css_classes(["button-bar"])
-            btn_bar.set_halign(Gtk.Align.END)
+            thinking_header = Gtk.Label(label=THINKING_HEADER)
+            thinking_header.set_css_classes(["thinking-header"])
+            thinking_header.set_xalign(0)
+            thinking_box.append(thinking_header)
 
-            copy_btn = Gtk.Button(label=BTN_COPY)
-            copy_btn.set_css_classes(["action-btn", "copy"])
-            copy_btn.connect("clicked", self._on_copy)
-            btn_bar.append(copy_btn)
-            box.append(btn_bar)
+            self._thinking_label = Gtk.Label(label=self._thinking_buffer)
+            self._thinking_label.set_css_classes(["thinking-content"])
+            self._thinking_label.set_wrap(True)
+            self._thinking_label.set_xalign(0)
+            self._thinking_label.set_max_width_chars(55)
+            thinking_box.append(self._thinking_label)
+            box.append(thinking_box)
+
+        if self.translated or self._streaming:
+            # 结果标签
+            self._result_label = Gtk.Label(label=self._stream_buffer if self._streaming else self.translated)
+            self._result_label.set_css_classes(["result"])
+            self._result_label.set_wrap(True)
+            self._result_label.set_xalign(0)
+            self._result_label.set_max_width_chars(55)
+            box.append(self._result_label)
+
+            # 速度显示标签
+            if self._streaming or self._token_count > 0:
+                self._speed_label = Gtk.Label()
+                self._speed_label.set_css_classes(["speed-label"])
+                self._speed_label.set_xalign(0)
+                self._update_speed_display()
+                box.append(self._speed_label)
+
+            if not self._streaming:
+                btn_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+                btn_bar.set_css_classes(["button-bar"])
+                btn_bar.set_halign(Gtk.Align.END)
+
+                copy_btn = Gtk.Button(label=BTN_COPY)
+                copy_btn.set_css_classes(["action-btn", "copy"])
+                copy_btn.connect("clicked", self._on_copy)
+                btn_bar.append(copy_btn)
+                box.append(btn_bar)
         else:
             self._loading_label = Gtk.Label(label=TRANSLATING)
             self._loading_label.set_css_classes(["hint"])
@@ -560,13 +579,40 @@ class TranslateWindow(Gtk.ApplicationWindow):
         box.set_css_classes(["content-box"])
         self._append_original(box)
 
-        if self.explanation:
-            body = Gtk.Label(label=self.explanation)
-            body.set_css_classes(["explain-body"])
-            body.set_wrap(True)
-            body.set_xalign(0)
-            body.set_max_width_chars(55)
-            box.append(body)
+        # 思考过程区域（如果有）
+        if self._thinking_buffer:
+            thinking_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            thinking_box.set_css_classes(["thinking-box"])
+
+            thinking_header = Gtk.Label(label=THINKING_HEADER)
+            thinking_header.set_css_classes(["thinking-header"])
+            thinking_header.set_xalign(0)
+            thinking_box.append(thinking_header)
+
+            self._thinking_label = Gtk.Label(label=self._thinking_buffer)
+            self._thinking_label.set_css_classes(["thinking-content"])
+            self._thinking_label.set_wrap(True)
+            self._thinking_label.set_xalign(0)
+            self._thinking_label.set_max_width_chars(55)
+            thinking_box.append(self._thinking_label)
+            box.append(thinking_box)
+
+        if self.explanation or self._streaming:
+            # 结果标签
+            self._result_label = Gtk.Label(label=self._stream_buffer if self._streaming else self.explanation)
+            self._result_label.set_css_classes(["explain-body"])
+            self._result_label.set_wrap(True)
+            self._result_label.set_xalign(0)
+            self._result_label.set_max_width_chars(55)
+            box.append(self._result_label)
+
+            # 速度显示标签
+            if self._streaming or self._token_count > 0:
+                self._speed_label = Gtk.Label()
+                self._speed_label.set_css_classes(["speed-label"])
+                self._speed_label.set_xalign(0)
+                self._update_speed_display()
+                box.append(self._speed_label)
         else:
             self._loading_label = Gtk.Label(label=EXPLAINING)
             self._loading_label.set_css_classes(["hint"])
@@ -720,44 +766,6 @@ class TranslateWindow(Gtk.ApplicationWindow):
             self._show_explain_tab()
             self._resize_to_content()
 
-    def _on_translate_done(self, text, model, thinking_enabled, result):
-        if (
-            self._translate_request_text == text
-            and self._translate_request_model == model
-            and self._translate_request_thinking == thinking_enabled
-        ):
-            self._translate_loading = False
-            self._translate_request_text = None
-            self._translate_request_model = None
-            self._translate_request_thinking = False
-        if (
-            text != self.text
-            or self._translate_model != self._display_model(model)
-            or self._translate_thinking != thinking_enabled
-        ):
-            return False
-        self.set_translation(result)
-        return False
-
-    def _on_explain_done(self, text, model, thinking_enabled, result):
-        if (
-            self._explain_request_text == text
-            and self._explain_request_model == model
-            and self._explain_request_thinking == thinking_enabled
-        ):
-            self._explain_loading = False
-            self._explain_request_text = None
-            self._explain_request_model = None
-            self._explain_request_thinking = False
-        if (
-            text != self.text
-            or self._explain_model != self._display_model(model)
-            or self._explain_thinking != thinking_enabled
-        ):
-            return False
-        self.set_explanation(result)
-        return False
-
     def show_loading(self):
         pass
 
@@ -788,10 +796,14 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
     def _regenerate_translation(self):
         self.translated = ""
+        self._stream_buffer = ""
+        self._thinking_buffer = ""
+        self._token_count = 0
+        self._start_time = 0.0
         self._clear_content()
         self._show_translate_tab()
         self._resize_to_content()
-        self._start_translation(self._api_model(self._translate_model), self._translate_thinking, False)
+        self._start_translation_stream(self._api_model(self._translate_model), self._translate_thinking, False)
 
     def _on_explain_regenerate(self, btn, model_dropdown, thinking_check):
         self._explain_model = self._selected_model(model_dropdown)
@@ -800,10 +812,14 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
     def _regenerate_explanation(self):
         self.explanation = ""
+        self._stream_buffer = ""
+        self._thinking_buffer = ""
+        self._token_count = 0
+        self._start_time = 0.0
         self._clear_content()
         self._show_explain_tab()
         self._resize_to_content()
-        self._start_explanation(self._api_model(self._explain_model), self._explain_thinking)
+        self._start_explanation_stream(self._api_model(self._explain_model), self._explain_thinking)
 
     def _on_retranslate(self, btn):
         buf = self._edit_view.get_buffer()
@@ -1007,6 +1023,290 @@ class TranslateWindow(Gtk.ApplicationWindow):
             self._show_chat_tab()
             self._resize_to_content()
             return True
+        return False
+
+    def _start_stream(self, tab_name):
+        """开始流式输出，初始化状态"""
+        self._streaming = True
+        self._stream_buffer = ""
+        self._thinking_buffer = ""
+        self._token_count = 0
+        self._start_time = time.time()
+
+        # 重新构建 UI 以显示流式输出区域
+        self._clear_content()
+        if tab_name == "translate":
+            self._show_translate_tab()
+        elif tab_name == "explain":
+            self._show_explain_tab()
+        self._resize_to_content()
+
+    def _append_stream_content(self, content, thinking=""):
+        """追加流式内容到显示区域"""
+        if not self._streaming:
+            return
+
+        # 更新缓冲区
+        if content:
+            self._stream_buffer += content
+            self._token_count += len(content) // 2  # 粗略估算 token 数
+        if thinking:
+            self._thinking_buffer += thinking
+
+        # 更新 UI
+        GLib.idle_add(self._update_stream_ui)
+
+    def _update_stream_ui(self):
+        """在主线程更新流式 UI"""
+        if not self._streaming:
+            return False
+
+        # 更新结果标签
+        if self._result_label:
+            self._result_label.set_text(self._stream_buffer)
+
+        # 更新思考标签
+        if self._thinking_label and self._thinking_buffer:
+            self._thinking_label.set_text(self._thinking_buffer)
+            self._thinking_label.set_visible(True)
+
+        # 更新速度显示
+        self._update_speed_display()
+
+        return False
+
+    def _update_speed_display(self):
+        """更新 token 生成速度显示"""
+        if not self._speed_label or self._start_time == 0:
+            return
+
+        elapsed = time.time() - self._start_time
+        if elapsed > 0:
+            tokens_per_second = self._token_count / elapsed
+            speed_text = SPEED_LABEL.format(
+                speed=f"{tokens_per_second:.1f}",
+                tokens=self._token_count,
+                time=f"{elapsed:.1f}"
+            )
+            self._speed_label.set_text(speed_text)
+
+    def _finish_stream(self, result=""):
+        """流式输出完成，清理状态"""
+        self._streaming = False
+
+        # 如果有最终结果，使用它
+        if result:
+            self._stream_buffer = result
+
+        # 更新最终速度显示
+        self._update_speed_display()
+
+        # 根据当前标签页更新显示
+        if self._current_tab == "translate":
+            self.translated = self._stream_buffer
+        elif self._current_tab == "explain":
+            self.explanation = self._stream_buffer
+
+        # 重新构建 UI 以显示最终结果
+        self._clear_content()
+        if self._current_tab == "translate":
+            self._show_translate_tab()
+        elif self._current_tab == "explain":
+            self._show_explain_tab()
+
+        self._resize_to_content()
+
+    def _start_translation_stream(self, model, thinking_enabled, use_cache):
+        """开始流式翻译"""
+        text = self.text
+        self._translate_loading = True
+        self._translate_request_text = text
+        self._translate_request_model = model
+        self._translate_request_thinking = thinking_enabled
+
+        # 先检查缓存（仅在非自定义模型且非思考模式时使用缓存）
+        if use_cache and not model and not thinking_enabled:
+            cached = self.history_db.lookup(text)
+            if cached:
+                self.translated = cached
+                self._translate_loading = False
+                self._clear_content()
+                self._show_translate_tab()
+                self._resize_to_content()
+                return
+
+        # 开始流式输出
+        self._start_stream("translate")
+
+        # 使用正确的翻译提示词
+        system_prompt = _translate_prompt(text)
+
+        def worker():
+            try:
+                for chunk in call_api_stream(
+                    system_prompt, text, self.config,
+                    model=model,
+                    thinking_enabled=thinking_enabled
+                ):
+                    if (
+                        self._translate_request_text != text
+                        or self._translate_request_model != model
+                        or self._translate_request_thinking != thinking_enabled
+                    ):
+                        break
+
+                    content = chunk.get("content", "")
+                    thinking = chunk.get("thinking", "")
+
+                    if content or thinking:
+                        self._append_stream_content(content, thinking)
+
+                    if chunk.get("done"):
+                        break
+
+                # 流式完成
+                GLib.idle_add(self._on_translate_stream_done, text, model, thinking_enabled)
+
+            except Exception as e:
+                error_msg = str(e)
+                GLib.idle_add(self._on_translate_stream_error, text, model, thinking_enabled, error_msg)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_translate_stream_done(self, text, model, thinking_enabled):
+        """翻译流式完成回调"""
+        if (
+            self._translate_request_text == text
+            and self._translate_request_model == model
+            and self._translate_request_thinking == thinking_enabled
+        ):
+            self._translate_loading = False
+            self._translate_request_text = None
+            self._translate_request_model = None
+            self._translate_request_thinking = False
+
+        if (
+            text != self.text
+            or self._translate_model != self._display_model(model)
+            or self._translate_thinking != thinking_enabled
+        ):
+            return False
+
+        # 保存到缓存（排除错误响应）
+        if self._stream_buffer and not _is_error(self._stream_buffer):
+            self.history_db.save(text, self._stream_buffer)
+
+        self._finish_stream(self._stream_buffer)
+        return False
+
+    def _on_translate_stream_error(self, text, model, thinking_enabled, error_msg):
+        """翻译流式错误回调"""
+        if (
+            self._translate_request_text == text
+            and self._translate_request_model == model
+            and self._translate_request_thinking == thinking_enabled
+        ):
+            self._translate_loading = False
+            self._translate_request_text = None
+            self._translate_request_model = None
+            self._translate_request_thinking = False
+
+        self._streaming = False
+        # 保留部分内容，附加错误信息
+        if self._stream_buffer:
+            self._stream_buffer += f"\n\n[错误: {error_msg}]"
+        else:
+            self._stream_buffer = error_msg
+        self._finish_stream(self._stream_buffer)
+        return False
+
+    def _start_explanation_stream(self, model, thinking_enabled):
+        """开始流式解释"""
+        text = self.text
+        self._explain_loading = True
+        self._explain_request_text = text
+        self._explain_request_model = model
+        self._explain_request_thinking = thinking_enabled
+
+        # 开始流式输出
+        self._start_stream("explain")
+
+        # 使用正确的解释提示词
+        system_prompt = _CODE_EXPLAIN_PROMPT if is_code_or_error(text) else _EXPLAIN_PROMPT
+
+        def worker():
+            try:
+                for chunk in call_api_stream(
+                    system_prompt, text, self.config,
+                    model=model,
+                    thinking_enabled=thinking_enabled
+                ):
+                    if (
+                        self._explain_request_text != text
+                        or self._explain_request_model != model
+                        or self._explain_request_thinking != thinking_enabled
+                    ):
+                        break
+
+                    content = chunk.get("content", "")
+                    thinking = chunk.get("thinking", "")
+
+                    if content or thinking:
+                        self._append_stream_content(content, thinking)
+
+                    if chunk.get("done"):
+                        break
+
+                # 流式完成
+                GLib.idle_add(self._on_explain_stream_done, text, model, thinking_enabled)
+
+            except Exception as e:
+                error_msg = str(e)
+                GLib.idle_add(self._on_explain_stream_error, text, model, thinking_enabled, error_msg)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_explain_stream_done(self, text, model, thinking_enabled):
+        """解释流式完成回调"""
+        if (
+            self._explain_request_text == text
+            and self._explain_request_model == model
+            and self._explain_request_thinking == thinking_enabled
+        ):
+            self._explain_loading = False
+            self._explain_request_text = None
+            self._explain_request_model = None
+            self._explain_request_thinking = False
+
+        if (
+            text != self.text
+            or self._explain_model != self._display_model(model)
+            or self._explain_thinking != thinking_enabled
+        ):
+            return False
+
+        self._finish_stream(self._stream_buffer)
+        return False
+
+    def _on_explain_stream_error(self, text, model, thinking_enabled, error_msg):
+        """解释流式错误回调"""
+        if (
+            self._explain_request_text == text
+            and self._explain_request_model == model
+            and self._explain_request_thinking == thinking_enabled
+        ):
+            self._explain_loading = False
+            self._explain_request_text = None
+            self._explain_request_model = None
+            self._explain_request_thinking = False
+
+        self._streaming = False
+        # 保留部分内容，附加错误信息
+        if self._stream_buffer:
+            self._stream_buffer += f"\n\n[错误: {error_msg}]"
+        else:
+            self._stream_buffer = error_msg
+        self._finish_stream(self._stream_buffer)
         return False
 
     def _on_key(self, controller, keyval, keycode, state):
