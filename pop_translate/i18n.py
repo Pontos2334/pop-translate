@@ -30,9 +30,3 @@ TAB_CHAT = "对话"
 SHORTCUT_HINT = "快捷键: S翻译 W解释 C对话 E编辑 R重生成 Y复制 F搜索 T思考 X上下文 Esc关闭"
 CHAT_PLACEHOLDER = "输入问题..."
 CHAT_THINKING = "思考中..."
-
-# 流式输出和速度显示相关
-SPEED_LABEL = "⚡ {speed} tokens/s | 共 {tokens} tokens | 耗时 {time}s"
-TOKENS_LABEL = "共 {tokens} tokens"
-TIME_LABEL = "耗时 {time}s"
-THINKING_HEADER = "💡 思考过程"

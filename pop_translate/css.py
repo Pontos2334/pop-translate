@@ -560,45 +560,4 @@ scrollbar slider:hover {
     font-size: 12px;
     margin-top: 4px;
 }
-
-/* Thinking process styles */
-.thinking-box {
-    background-color: #f8f9fa;
-    border-left: 3px solid #4a9eff;
-    padding: 10px 12px;
-    margin: 8px 0;
-    border-radius: 6px;
-}
-
-.thinking-header {
-    color: #4a9eff;
-    font-size: 12px;
-    font-weight: 700;
-    margin-bottom: 6px;
-}
-
-.thinking-content {
-    color: #555;
-    font-size: 11.5px;
-    line-height: 1.5;
-}
-
-/* Speed display styles */
-.speed-label {
-    color: #888;
-    font-size: 11px;
-    padding: 4px 8px;
-    margin-top: 4px;
-    border-top: 1px solid #eee;
-}
-
-/* Streaming cursor effect */
-.streaming-cursor {
-    animation: blink 1s infinite;
-}
-
-@keyframes blink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0; }
-}
 """
