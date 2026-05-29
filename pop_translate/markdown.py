@@ -52,4 +52,6 @@ def markdown_to_pango(text):
         else:
             result.append(_inline(_escape(line)))
 
-    return "\n".join(result)
+    output = "\n".join(result)
+    output = re.sub(r"\n{2,}", "\n", output)
+    return output

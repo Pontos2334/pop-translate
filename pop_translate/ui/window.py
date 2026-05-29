@@ -13,7 +13,7 @@ from ..css import CSS
 from ..i18n import (
     APP_TITLE, TRANSLATING, EXPLAINING, OCR_LOADING,
     BTN_COPY, BTN_COPIED, BTN_COPY_ORIGINAL, BTN_COPIED_ORIG,
-    BTN_EDIT, BTN_RETRANSLATE, BTN_REEXPLAIN, BTN_CANCEL, BTN_SEND,
+    BTN_EDIT, BTN_RETRANSLATE, BTN_REEXPLAIN, BTN_DETAILED_EXPLAIN, BTN_CANCEL, BTN_SEND,
     BTN_SEARCH, BTN_SCREENSHOT, BTN_THINKING, BTN_WITH_CONTEXT, BTN_NO_CONTEXT,
     TAB_TRANSLATE, TAB_EXPLAIN, TAB_CHAT,
     SHORTCUT_HINT, CHAT_PLACEHOLDER, CHAT_THINKING,
@@ -58,6 +58,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._chat_model = self._initial_model()
         self._translate_thinking = False
         self._explain_thinking = False
+        self._explain_detailed = False
         self._chat_thinking = False
         self._chat_include_context = True
         self._autoclose_timeout_id = None
@@ -459,15 +460,16 @@ class TranslateWindow(Gtk.ApplicationWindow):
             return
         self._start_explanation(self._api_model(self._explain_model), False)
 
-    def _start_explanation(self, model, thinking_enabled):
+    def _start_explanation(self, model, thinking_enabled, detailed=False):
         text = self.text
         self._explain_loading = True
         self._explain_request_text = text
         self._explain_request_model = model
         self._explain_request_thinking = thinking_enabled
+        self._explain_detailed = detailed
 
         def worker():
-            result = explain(text, self.config, model=model, thinking_enabled=thinking_enabled)
+            result = explain(text, self.config, model=model, thinking_enabled=thinking_enabled, detailed=detailed)
             GLib.idle_add(self._on_explain_done, text, model, thinking_enabled, result)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -578,12 +580,18 @@ class TranslateWindow(Gtk.ApplicationWindow):
             self._loading_label.set_xalign(0)
             box.append(self._loading_label)
 
-        box.append(self._build_model_controls(
+        controls = self._build_model_controls(
             self._explain_model,
             self._explain_thinking,
             self._on_explain_regenerate,
             BTN_REEXPLAIN,
-        ))
+        )
+        if self.explanation and not self._explain_detailed:
+            detail_btn = Gtk.Button(label=BTN_DETAILED_EXPLAIN)
+            detail_btn.set_css_classes(["action-btn", "primary"])
+            detail_btn.connect("clicked", self._on_detailed_explain)
+            controls.append(detail_btn)
+        box.append(controls)
         self.content_area.append(self._wrap_scroll(box))
 
     def _show_chat_tab(self):
@@ -813,10 +821,18 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
     def _regenerate_explanation(self):
         self.explanation = ""
+        self._explain_detailed = False
         self._clear_content()
         self._show_explain_tab()
         self._resize_to_content()
         self._start_explanation(self._api_model(self._explain_model), self._explain_thinking)
+
+    def _on_detailed_explain(self, btn):
+        self.explanation = ""
+        self._clear_content()
+        self._show_explain_tab()
+        self._resize_to_content()
+        self._start_explanation(self._api_model(self._explain_model), self._explain_thinking, detailed=True)
 
     def _on_retranslate(self, btn):
         buf = self._edit_view.get_buffer()
@@ -873,6 +889,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._translate_request_thinking = False
         self._explain_request_thinking = False
         self._chat_request_thinking = False
+        self._explain_detailed = False
         self._clear_content()
         self._show_explain_tab()
         self._resize_to_content()

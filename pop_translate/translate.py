@@ -82,9 +82,16 @@ def _translate_prompt(text):
 
 _EXPLAIN_PROMPT = (
     "You are a knowledgeable assistant. The user has encountered something they don't understand. "
-    "Explain it clearly in 中文: what it is, what it means, why it matters, and any relevant background. "
+    "Explain it briefly in 中文: only the most important points in 3-5 sentences. "
     "Use plain language suitable for a learner. Output only the explanation. "
-    "You may use markdown formatting (headings, bold, lists) to structure your explanation."
+    "You may use markdown formatting (bold, inline code) to highlight key terms."
+)
+
+_EXPLAIN_DETAILED_PROMPT = (
+    "You are a knowledgeable assistant. The user has encountered something they don't understand. "
+    "Explain it clearly and thoroughly in 中文: what it is, what it means, why it matters, and any relevant background. "
+    "Use plain language suitable for a learner. Output only the explanation. "
+    "You may use markdown formatting (headings, bold, lists, code blocks) to structure your explanation."
 )
 
 _CHAT_SYSTEM_PROMPT = (
@@ -118,6 +125,12 @@ def translate(text, config, history_db, model=None, thinking_enabled=False, use_
 
 _CODE_EXPLAIN_PROMPT = (
     "You are a Senior Software Engineer. The user has provided a snippet of code or an error message. "
+    "Explain it briefly in 中文 in 3-5 sentences: what it does or why the error occurred. "
+    "Output only the explanation. You may use inline code formatting."
+)
+
+_CODE_EXPLAIN_DETAILED_PROMPT = (
+    "You are a Senior Software Engineer. The user has provided a snippet of code or an error message. "
     "Explain it clearly in 中文:\n"
     "1. For code snippet: explain what the code does, analyze its logic, and suggest any potential optimizations.\n"
     "2. For error message: analyze why the error occurred, explain the root cause, and provide a step-by-step fix with corrected code examples.\n"
@@ -125,8 +138,11 @@ _CODE_EXPLAIN_PROMPT = (
 )
 
 
-def explain(text, config, model=None, thinking_enabled=False):
-    prompt = _CODE_EXPLAIN_PROMPT if is_code_or_error(text) else _EXPLAIN_PROMPT
+def explain(text, config, model=None, thinking_enabled=False, detailed=False):
+    if is_code_or_error(text):
+        prompt = _CODE_EXPLAIN_DETAILED_PROMPT if detailed else _CODE_EXPLAIN_PROMPT
+    else:
+        prompt = _EXPLAIN_DETAILED_PROMPT if detailed else _EXPLAIN_PROMPT
     return call_api(
         prompt,
         text,
