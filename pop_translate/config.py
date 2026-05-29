@@ -20,7 +20,6 @@ class Config:
         self.timeout = DEFAULTS["timeout"]
 
     def load(self):
-        self._apply_env()
         if os.path.exists(CONFIG_PATH):
             try:
                 with open(CONFIG_PATH, "r", encoding="utf-8") as f:

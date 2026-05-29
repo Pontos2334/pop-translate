@@ -64,7 +64,10 @@ def call_api(system_prompt, user_text, config, messages=None, model=None, thinki
         try:
             with urllib.request.urlopen(req, timeout=config.timeout) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
-                return result["choices"][0]["message"]["content"].strip()
+                try:
+                    return result["choices"][0]["message"]["content"].strip()
+                except (KeyError, TypeError, IndexError):
+                    return ERROR_UNKNOWN
         except Exception as e:
             last_error = e
             msg, retryable = _classify_error(e)

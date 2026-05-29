@@ -76,20 +76,21 @@ def _translate_prompt(text):
         f"You are a professional translator. Translate the following text to {target_lang}. "
         f"Only output the translation result, nothing else. "
         f"If the text is already in {target_lang}, just return it as is. "
-        f"Keep the original formatting. Do NOT use markdown formatting."
+        f"Keep the original formatting."
     )
 
 
 _EXPLAIN_PROMPT = (
     "You are a knowledgeable assistant. The user has encountered something they don't understand. "
     "Explain it clearly in 中文: what it is, what it means, why it matters, and any relevant background. "
-    "Use plain language suitable for a learner. Output only the explanation. Do NOT use markdown formatting."
+    "Use plain language suitable for a learner. Output only the explanation. "
+    "You may use markdown formatting (headings, bold, lists) to structure your explanation."
 )
 
 _CHAT_SYSTEM_PROMPT = (
     "你是一个翻译助手。用户选中了一段文字，可能已经有译文或解释作为上下文。"
     "请基于已提供的上下文，用中文回答用户关于这段文字的问题，例如翻译细节、语法、用法等。"
-    "不要使用 markdown 格式。"
+    "你可以使用 markdown 格式来组织回复。"
 )
 
 
@@ -120,7 +121,7 @@ _CODE_EXPLAIN_PROMPT = (
     "Explain it clearly in 中文:\n"
     "1. For code snippet: explain what the code does, analyze its logic, and suggest any potential optimizations.\n"
     "2. For error message: analyze why the error occurred, explain the root cause, and provide a step-by-step fix with corrected code examples.\n"
-    "Use clean structure. Output only the explanation. Do NOT use markdown formatting (keep text plain but structured)."
+    "Use clean structure. Output only the explanation. Use markdown code blocks for code examples."
 )
 
 

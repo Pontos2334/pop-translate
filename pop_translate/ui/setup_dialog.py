@@ -1,5 +1,3 @@
-import sys
-
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
@@ -24,7 +22,7 @@ class SetupDialog(Gtk.Window):
         self._load_css()
         self._build_ui()
 
-        self.connect("close-request", lambda w: sys.exit(0))
+        self.connect("close-request", self._on_close_request)
 
     def _load_css(self):
         provider = Gtk.CssProvider()
@@ -70,7 +68,7 @@ class SetupDialog(Gtk.Window):
 
         cancel_btn = Gtk.Button(label=SETUP_CANCEL)
         cancel_btn.set_css_classes(["setup-cancel"])
-        cancel_btn.connect("clicked", lambda b: sys.exit(0))
+        cancel_btn.connect("clicked", lambda b: self.close())
         btn_bar.append(cancel_btn)
 
         save_btn = Gtk.Button(label=SETUP_SAVE)
@@ -111,3 +109,8 @@ class SetupDialog(Gtk.Window):
         self.close()
         if self.on_saved:
             self.on_saved()
+
+    def _on_close_request(self, _window):
+        if self.on_saved:
+            self.on_saved()
+        return False

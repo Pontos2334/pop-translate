@@ -11,12 +11,16 @@ from gi.repository import Gtk, Gdk, GLib
 
 from ..css import CSS
 from ..i18n import (
-    APP_TITLE, TRANSLATING, EXPLAINING,
-    BTN_COPY, BTN_COPIED, BTN_EDIT, BTN_RETRANSLATE, BTN_REEXPLAIN, BTN_CANCEL, BTN_SEND,
+    APP_TITLE, TRANSLATING, EXPLAINING, OCR_LOADING,
+    BTN_COPY, BTN_COPIED, BTN_COPY_ORIGINAL, BTN_COPIED_ORIG,
+    BTN_EDIT, BTN_RETRANSLATE, BTN_REEXPLAIN, BTN_CANCEL, BTN_SEND,
+    BTN_SEARCH, BTN_SCREENSHOT, BTN_THINKING, BTN_WITH_CONTEXT, BTN_NO_CONTEXT,
     TAB_TRANSLATE, TAB_EXPLAIN, TAB_CHAT,
     SHORTCUT_HINT, CHAT_PLACEHOLDER, CHAT_THINKING,
 )
 from ..translate import translate, explain, chat as do_chat, is_code_or_error
+from ..clipboard import copy_text
+from ..markdown import markdown_to_pango
 
 MODELS = ("deepseek-v4-flash", "deepseek-v4-pro")
 DEFAULT_MODEL = "deepseek-v4-flash"
@@ -24,7 +28,7 @@ BARE_DOMAIN_RE = re.compile(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}([/?#].*)?$")
 
 
 class TranslateWindow(Gtk.ApplicationWindow):
-    def __init__(self, app, text, config, history_db, default_tab="translate"):
+    def __init__(self, app, text, config, history_db, default_tab="translate", ocr_bootstrapping=False):
         super().__init__(application=app, title="translate")
         self.original_text = text
         self.text = text
@@ -57,7 +61,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._chat_thinking = False
         self._chat_include_context = True
         self._autoclose_timeout_id = None
-        self._ocr_bootstrapping = (text == "🔍 正在识别截取文字中，请稍候...")
+        self._ocr_bootstrapping = ocr_bootstrapping
 
         self.set_decorated(False)
         self.set_resizable(True)
@@ -80,9 +84,9 @@ class TranslateWindow(Gtk.ApplicationWindow):
         key_capture_ctrl.connect("key-pressed", lambda ctrl, kv, kc, st: self._reset_autoclose_timer())
         self.add_controller(key_capture_ctrl)
 
-        # Auto-Close: Reset timer on mouse motion
+        # Auto-Close: Reset timer on mouse entering window
         motion_ctrl = Gtk.EventControllerMotion.new()
-        motion_ctrl.connect("motion", self._reset_autoclose_timer)
+        motion_ctrl.connect("enter", self._reset_autoclose_timer)
         self.add_controller(motion_ctrl)
 
         # Auto-Close: Reset timer on click
@@ -180,17 +184,17 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self.edit_btn.connect("clicked", self._on_edit)
         title_bar.append(self.edit_btn)
 
-        search_btn = Gtk.Button(label="搜索")
+        search_btn = Gtk.Button(label=BTN_SEARCH)
         search_btn.set_css_classes(["title-btn"])
         search_btn.connect("clicked", self._on_search)
         title_bar.append(search_btn)
 
-        ocr_btn = Gtk.Button(label="截图")
+        ocr_btn = Gtk.Button(label=BTN_SCREENSHOT)
         ocr_btn.set_css_classes(["title-btn"])
         ocr_btn.connect("clicked", self._on_screenshot_ocr)
         title_bar.append(ocr_btn)
 
-        self.copy_orig_btn = Gtk.Button(label="复制原文")
+        self.copy_orig_btn = Gtk.Button(label=BTN_COPY_ORIGINAL)
         self.copy_orig_btn.set_css_classes(["title-btn"])
         self.copy_orig_btn.connect("clicked", self._on_copy_original)
         title_bar.append(self.copy_orig_btn)
@@ -269,7 +273,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
     def _show_ocr_loading_state(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         box.set_css_classes(["content-box"])
-        self._loading_label = Gtk.Label(label="🔍 正在识别截取文字中，请稍候...")
+        self._loading_label = Gtk.Label(label=OCR_LOADING)
         self._loading_label.set_css_classes(["hint"])
         self._loading_label.set_wrap(True)
         self._loading_label.set_xalign(0)
@@ -278,25 +282,17 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
     def _on_copy_original(self, btn):
         text = self.text
-        if not text or text == "🔍 正在识别截取文字中，请稍候...":
+        if not text or text == OCR_LOADING:
             return
-        
-        btn.set_label("已复制!")
+
+        btn.set_label(BTN_COPIED_ORIG)
         btn.set_sensitive(False)
 
         def worker():
-            try:
-                subprocess.run(
-                    ["wl-copy", text],
-                    capture_output=True,
-                    timeout=2,
-                    env={**os.environ, "WAYLAND_DISPLAY": os.environ.get("WAYLAND_DISPLAY", "")},
-                )
-            except Exception:
-                pass
-            
+            copy_text(text)
+
             def reset_btn():
-                btn.set_label("复制原文")
+                btn.set_label(BTN_COPY_ORIGINAL)
                 btn.set_sensitive(True)
                 return False
             GLib.timeout_add_seconds(1, reset_btn)
@@ -429,7 +425,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
             model_dropdown.connect("notify::selected", on_model_changed)
         bar.append(model_dropdown)
 
-        thinking_check = Gtk.CheckButton(label="思考")
+        thinking_check = Gtk.CheckButton(label=BTN_THINKING)
         thinking_check.set_css_classes(["thinking-toggle"])
         thinking_check.set_active(thinking_enabled)
         if on_thinking_changed:
@@ -452,6 +448,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         orig.set_wrap(True)
         orig.set_xalign(0)
         orig.set_max_width_chars(55)
+        orig.set_selectable(True)
         
         card.append(orig)
         box.append(card)
@@ -477,7 +474,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
     def _show_translate_tab(self):
         if self._editing:
-            self._show_edit_mode()
+            self._show_edit_mode(BTN_RETRANSLATE, self._on_retranslate)
             return
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -490,6 +487,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
             result.set_wrap(True)
             result.set_xalign(0)
             result.set_max_width_chars(55)
+            result.set_selectable(True)
             box.append(result)
 
             btn_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -516,7 +514,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         ))
         self.content_area.append(self._wrap_scroll(box))
 
-    def _show_edit_mode(self):
+    def _show_edit_mode(self, primary_label, on_primary):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         box.set_css_classes(["content-box"])
 
@@ -546,26 +544,32 @@ class TranslateWindow(Gtk.ApplicationWindow):
         cancel_btn.connect("clicked", self._on_edit_cancel)
         btn_bar.append(cancel_btn)
 
-        retrans_btn = Gtk.Button(label=BTN_RETRANSLATE)
-        retrans_btn.set_css_classes(["action-btn", "primary"])
-        retrans_btn.connect("clicked", self._on_retranslate)
-        btn_bar.append(retrans_btn)
+        primary_btn = Gtk.Button(label=primary_label)
+        primary_btn.set_css_classes(["action-btn", "primary"])
+        primary_btn.connect("clicked", on_primary)
+        btn_bar.append(primary_btn)
 
         box.append(btn_bar)
         self.content_area.append(self._wrap_scroll(box))
         self._edit_view.grab_focus()
 
     def _show_explain_tab(self):
+        if self._editing:
+            self._show_edit_mode(BTN_REEXPLAIN, self._on_reexplain)
+            return
+
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         box.set_css_classes(["content-box"])
         self._append_original(box)
 
         if self.explanation:
-            body = Gtk.Label(label=self.explanation)
+            body = Gtk.Label()
+            body.set_markup(markdown_to_pango(self.explanation))
             body.set_css_classes(["explain-body"])
             body.set_wrap(True)
             body.set_xalign(0)
             body.set_max_width_chars(55)
+            body.set_selectable(True)
             box.append(body)
         else:
             self._loading_label = Gtk.Label(label=EXPLAINING)
@@ -594,13 +598,13 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._chat_model_dropdown.connect("notify::selected", self._on_chat_model_changed)
         controls.append(self._chat_model_dropdown)
 
-        self._chat_thinking_check = Gtk.CheckButton(label="思考")
+        self._chat_thinking_check = Gtk.CheckButton(label=BTN_THINKING)
         self._chat_thinking_check.set_css_classes(["thinking-toggle"])
         self._chat_thinking_check.set_active(self._chat_thinking)
         self._chat_thinking_check.connect("toggled", self._on_chat_thinking_toggled)
         controls.append(self._chat_thinking_check)
 
-        self._chat_context_btn = Gtk.Button(label="带上下文" if self._chat_include_context else "无上下文")
+        self._chat_context_btn = Gtk.Button(label=BTN_WITH_CONTEXT if self._chat_include_context else BTN_NO_CONTEXT)
         self._chat_context_btn.set_css_classes(["action-btn"])
         self._chat_context_btn.connect("clicked", self._on_chat_context_toggle)
         controls.append(self._chat_context_btn)
@@ -670,7 +674,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
     def _on_chat_context_toggle(self, btn):
         self._chat_include_context = not self._chat_include_context
-        btn.set_label("带上下文" if self._chat_include_context else "无上下文")
+        btn.set_label(BTN_WITH_CONTEXT if self._chat_include_context else BTN_NO_CONTEXT)
 
     def _toggle_chat_context(self):
         self._chat_include_context = not self._chat_include_context
@@ -690,17 +694,22 @@ class TranslateWindow(Gtk.ApplicationWindow):
         return scrolled
 
     def _append_chat_bubble(self, role, text):
-        label = Gtk.Label(label=text)
+        label = Gtk.Label()
+        if role == "user":
+            label.set_label(text)
+            label.set_css_classes(["chat-bubble-user"])
+        else:
+            label.set_markup(markdown_to_pango(text))
+            label.set_css_classes(["chat-bubble-ai"])
         label.set_wrap(True)
         label.set_max_width_chars(65)
         label.set_xalign(0)
+        label.set_selectable(True)
 
         align = Gtk.Box()
         if role == "user":
-            label.set_css_classes(["chat-bubble-user"])
             align.set_halign(Gtk.Align.END)
         else:
-            label.set_css_classes(["chat-bubble-ai"])
             align.set_halign(Gtk.Align.START)
 
         align.append(label)
@@ -763,17 +772,21 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
     def _on_edit(self, btn):
         self._editing = True
-        if self._current_tab != "translate":
-            self._switch_tab("translate")
-            return
         self._clear_content()
-        self._show_translate_tab()
+        if self._current_tab == "translate":
+            self._show_translate_tab()
+        elif self._current_tab == "explain":
+            self._show_explain_tab()
+        self._resize_to_content()
 
     def _on_edit_cancel(self, btn):
         self._editing = False
+        self._clear_content()
         if self._current_tab == "translate":
-            self._clear_content()
             self._show_translate_tab()
+        elif self._current_tab == "explain":
+            self._show_explain_tab()
+        self._resize_to_content()
 
     def _on_edit_key(self, controller, keyval, keycode, state):
         if keyval == Gdk.KEY_Escape:
@@ -835,10 +848,42 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._resize_to_content()
         self._ensure_translation()
 
+    def _on_reexplain(self, btn):
+        buf = self._edit_view.get_buffer()
+        start = buf.get_start_iter()
+        end = buf.get_end_iter()
+        new_text = buf.get_text(start, end, False).strip()
+        if not new_text:
+            return
+
+        self.text = new_text
+        self._editing = False
+        self.translated = ""
+        self.explanation = ""
+        self.chat_messages = []
+        self._translate_loading = False
+        self._explain_loading = False
+        self._chat_loading = False
+        self._translate_request_text = None
+        self._explain_request_text = None
+        self._chat_request_text = None
+        self._translate_request_model = None
+        self._explain_request_model = None
+        self._chat_request_model = None
+        self._translate_request_thinking = False
+        self._explain_request_thinking = False
+        self._chat_request_thinking = False
+        self._clear_content()
+        self._show_explain_tab()
+        self._resize_to_content()
+        self._ensure_explanation()
+
     def _on_copy(self, btn):
         self._copy_translation()
         btn.set_label(BTN_COPIED)
         btn.set_sensitive(False)
+        btn.add_css_class("copied")
+        GLib.timeout_add_seconds(1, lambda: (btn.remove_css_class("copied"), btn.set_sensitive(True), btn.set_label(BTN_COPY), False)[-1])
 
     def _copy_translation(self):
         if not self.translated:
@@ -846,15 +891,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         text = self.translated
 
         def worker():
-            try:
-                subprocess.run(
-                    ["wl-copy", text],
-                    capture_output=True,
-                    timeout=2,
-                    env={**os.environ, "WAYLAND_DISPLAY": os.environ.get("WAYLAND_DISPLAY", "")},
-                )
-            except Exception:
-                pass
+            copy_text(text)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -956,8 +993,8 @@ class TranslateWindow(Gtk.ApplicationWindow):
             return False
         self.chat_messages.append({"role": "assistant", "content": result})
         if self._current_tab == "chat":
-            self._clear_content()
-            self._show_chat_tab()
+            self._append_chat_bubble("assistant", result)
+            self._chat_send_btn.set_sensitive(True)
             self._resize_to_content()
         return False
 

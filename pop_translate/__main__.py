@@ -1,3 +1,4 @@
+import shutil
 import sys
 import os
 import subprocess
@@ -7,9 +8,10 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Gtk, Gio
 
 from .config import Config
-from .clipboard import get_selection
+from .clipboard import get_selection, copy_text
 from .history import HistoryDB
 from .translate import should_translate, is_code_or_error
+from .i18n import OCR_LOADING
 from .ui.window import TranslateWindow
 from .ui.setup_dialog import SetupDialog
 
@@ -25,35 +27,44 @@ def capture_screenshot():
             os.remove(tmp_img)
         except Exception:
             pass
-            
+
+    screenshot_tools = [
+        ["spectacle", "-r", "-b", "-o", tmp_img],
+        ["gnome-screenshot", "-a", "-f", tmp_img],
+        ["scrot", "-s", tmp_img],
+    ]
+
+    cmd = None
+    for tool_cmd in screenshot_tools:
+        if shutil.which(tool_cmd[0]):
+            cmd = tool_cmd
+            break
+
+    if cmd is None:
+        print("未找到截图工具，请安装 spectacle、gnome-screenshot 或 scrot", file=sys.stderr)
+        return False
+
     try:
-        # Launch spectacle as a non-blocking background process to capture region
-        proc = subprocess.Popen([
-            "spectacle", "-r", "-b", "-o", tmp_img
-        ])
+        proc = subprocess.Popen(cmd)
     except Exception as e:
         print(f"截图失败: {e}", file=sys.stderr)
         return False
-        
-    # Poll for the screenshot file to be created and written
+
     start_time = time.time()
-    timeout = 120.0  # 2 minutes timeout for the user to make a selection
-    
+    timeout = 120.0
+
     while time.time() - start_time < timeout:
-        # If spectacle exited prematurely and file doesn't exist, user cancelled
         if proc.poll() is not None:
             if not os.path.exists(tmp_img):
                 return False
-                
+
         if os.path.exists(tmp_img):
-            # Wait a tiny bit to make sure spectacle finished flushing the file to disk
             time.sleep(0.1)
             if os.path.getsize(tmp_img) > 0:
                 return True
-                
+
         time.sleep(0.05)
-        
-    # Timeout reached; terminate the process if still running
+
     if proc.poll() is None:
         try:
             proc.terminate()
@@ -122,7 +133,7 @@ def perform_local_ocr():
 
 
 class TranslateApp(Gtk.Application):
-    def __init__(self, text, config, history_db, default_tab):
+    def __init__(self, text, config, history_db, default_tab, ocr_bootstrapping=False):
         super().__init__(
             application_id="com.translate.popup",
             flags=Gio.ApplicationFlags.NON_UNIQUE,
@@ -131,9 +142,10 @@ class TranslateApp(Gtk.Application):
         self.config = config
         self.history_db = history_db
         self.default_tab = default_tab
+        self.ocr_bootstrapping = ocr_bootstrapping
 
     def do_activate(self):
-        self.win = TranslateWindow(self, self.text, self.config, self.history_db, self.default_tab)
+        self.win = TranslateWindow(self, self.text, self.config, self.history_db, self.default_tab, self.ocr_bootstrapping)
         self.win.present()
 
 
@@ -158,19 +170,23 @@ def main():
 
     # Check for CLI OCR flag
     text = ""
+    ocr_bootstrapping = False
     if "--ocr" in sys.argv or "-o" in sys.argv:
         if not capture_screenshot():
             sys.exit(0)
-        # Boot the window instantly using a special loading text
-        text = "🔍 正在识别截取文字中，请稍候..."
+        text = OCR_LOADING
         default_tab = "translate"
+        ocr_bootstrapping = True
     else:
         text = get_selection()
         if not text:
             sys.exit(0)
 
+    # Copy original text to clipboard
+    copy_text(text)
+
     # Route automatically to Explain if code or error message is detected
-    if text == "🔍 正在识别截取文字中，请稍候...":
+    if ocr_bootstrapping:
         default_tab = "translate"
     elif is_code_or_error(text):
         default_tab = "explain"
@@ -178,7 +194,7 @@ def main():
         default_tab = "translate" if should_translate(text) else "explain"
 
     history_db = HistoryDB()
-    app = TranslateApp(text, config, history_db, default_tab)
+    app = TranslateApp(text, config, history_db, default_tab, ocr_bootstrapping)
     sys.exit(app.run(None))
 
 

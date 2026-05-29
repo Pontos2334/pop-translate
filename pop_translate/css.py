@@ -330,21 +330,26 @@ dropdown.model-select button arrow {
     background-color: rgba(9, 105, 218, 0.03);
 }
 
+.action-btn.copied {
+    color: #16a34a;
+    border-color: rgba(22, 163, 74, 0.3);
+    background-color: rgba(22, 163, 74, 0.08);
+}
+
 /* Custom Styled Scrollbar (Thin macOS Style) */
 scrollbar {
     background-color: transparent;
 }
 
 scrollbar slider {
-    background-color: rgba(0, 0, 0, 0.08);
+    background-color: rgba(0, 0, 0, 0.10);
     border-radius: 4px;
-    min-width: 3px;
-    min-height: 3px;
-    transition: background-color 0.15s;
+    min-width: 6px;
+    min-height: 6px;
 }
 
 scrollbar slider:hover {
-    background-color: rgba(0, 0, 0, 0.18);
+    background-color: rgba(0, 0, 0, 0.25);
 }
 
 /* Shortcut Instruction Bar */
