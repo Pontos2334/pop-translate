@@ -448,6 +448,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         orig.set_wrap(True)
         orig.set_xalign(0)
         orig.set_max_width_chars(55)
+        orig.set_selectable(True)
         
         card.append(orig)
         box.append(card)
