@@ -8,7 +8,7 @@ def _escape(text):
 def _inline(text):
     text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
     text = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<i>\1</i>", text)
-    text = re.sub(r"`(.+?)`", r'<span font_family="monospace" background="#f0f0f0" foreground="#d63384">\1</span>', text)
+    text = re.sub(r"`(.+?)`", r'<span background="#f0f0f0" foreground="#d63384">\1</span>', text)
     text = re.sub(r"\[(.+?)\]\((.+?)\)", r'<a href="\2">\1</a>', text)
     return text
 
@@ -26,7 +26,7 @@ def markdown_to_pango(text):
             if in_code_block:
                 code_content = "\n".join(code_lines)
                 escaped = _escape(code_content)
-                result.append(f'<span font_family="monospace" background="#f4f4f5" foreground="#18181b">{escaped}</span>')
+                result.append(f'<span background="#f4f4f5" foreground="#18181b">{escaped}</span>')
                 code_lines = []
                 in_code_block = False
             else:

@@ -1,7 +1,7 @@
 CSS = b"""
 /* Global Reset and Base Styles */
 * {
-    font-family: "Inter", "Cantarell", "system-ui", "-apple-system", "BlinkMacSystemFont", "Roboto", "Noto Sans CJK SC", "Source Han Sans CN", "Microsoft YaHei", sans-serif;
+    font-family: "Maple Mono NF CN", sans-serif;
     outline: none;
 }
 

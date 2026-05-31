@@ -1,5 +1,4 @@
 import os
-import sys
 import subprocess
 
 
@@ -79,13 +78,13 @@ def _read_xclip_clipboard():
 
 def get_selection():
     if _is_wayland():
-        text = _read_wl_paste()
+        text = _read_wl_clipboard()
         if not text:
-            text = _read_wl_clipboard()
+            text = _read_wl_paste()
         return text
-    text = _read_xclip()
+    text = _read_xclip_clipboard()
     if not text:
-        text = _read_xclip_clipboard()
+        text = _read_xclip()
     return text
 
 
