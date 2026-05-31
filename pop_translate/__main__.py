@@ -8,7 +8,7 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Gtk, Gio
 
 from .config import Config
-from .clipboard import get_selection, copy_text
+from .clipboard import get_selection, copy_text, simulate_copy
 from .history import HistoryDB
 from .translate import should_translate, is_code_or_error
 from .i18n import OCR_LOADING
@@ -178,6 +178,7 @@ def main():
         default_tab = "translate"
         ocr_bootstrapping = True
     else:
+        simulate_copy()
         text = get_selection()
         if not text:
             sys.exit(0)

@@ -52,6 +52,8 @@
 | `gtk4` | GUI 工具包 |
 | `wl-clipboard` | Wayland 划词剪贴板获取 |
 | `xclip` (可选) | X11 桌面环境兼容获取 |
+| `ydotool` (可选) | Wayland 下模拟按键复制选中内容 |
+| `xdotool` (可选) | X11 下模拟按键复制选中内容 |
 
 ---
 
@@ -61,17 +63,17 @@
 
 **Arch Linux:**
 ```bash
-sudo pacman -S python python-gobject gtk4 wl-clipboard xclip
+sudo pacman -S python python-gobject gtk4 wl-clipboard xclip ydotool
 ```
 
 **Debian/Ubuntu:**
 ```bash
-sudo apt install python3 python3-gi gir1.2-gtk-4.0 wl-clipboard xclip
+sudo apt install python3 python3-gi gir1.2-gtk-4.0 wl-clipboard xclip ydotool
 ```
 
 **Fedora:**
 ```bash
-sudo dnf install python3 python3-gobject gtk4 wl-clipboard xclip
+sudo dnf install python3 python3-gobject gtk4 wl-clipboard xclip ydotool
 ```
 
 ### 2. 安装 Pop Translate
@@ -81,7 +83,17 @@ sudo dnf install python3 python3-gobject gtk4 wl-clipboard xclip
 ./install.sh
 ```
 
-### 3. 初始化配置
+### 3. 启用 ydotool 守护进程（Wayland 推荐）
+
+为了在按快捷键时自动复制选中内容，需要启用 ydotool 守护进程：
+
+```bash
+systemctl --user enable --now ydotool
+```
+
+> **注：** 未启用 ydotool 时，Pop Translate 仍可正常工作，但会读取剪贴板中已有的内容，而非当前选中的文字。X11 用户使用 xdotool，无需额外配置。
+
+### 4. 初始化配置
 
 在终端直接输入并运行 `pop-translate`，或初次通过全局快捷键唤醒。
 
@@ -95,7 +107,7 @@ sudo dnf install python3 python3-gobject gtk4 wl-clipboard xclip
 
 *(当然，您也依然可以使用传统的环境变量方式，在 `.bashrc` 或 `.zshrc` 中导出 `POP_TRANSLATE_API_KEY`、`POP_TRANSLATE_API_URL` 和 `POP_TRANSLATE_MODEL`)*
 
-### 4. 设置全局快捷键
+### 5. 设置全局快捷键
 
 **KDE Plasma:**
 1. 打开 **系统设置** → **快捷键** → **自定义快捷键**。

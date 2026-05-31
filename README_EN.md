@@ -52,6 +52,8 @@ Pop Translate is designed with keyboard-first users in mind.
 | `gtk4` | GUI toolkit |
 | `wl-clipboard` | Get selected text on Wayland |
 | `xclip` (optional) | Fallback for X11 selection |
+| `ydotool` (optional) | Simulate copy keystroke on Wayland |
+| `xdotool` (optional) | Simulate copy keystroke on X11 |
 
 ---
 
@@ -61,17 +63,17 @@ Pop Translate is designed with keyboard-first users in mind.
 
 **Arch Linux:**
 ```bash
-sudo pacman -S python python-gobject gtk4 wl-clipboard xclip
+sudo pacman -S python python-gobject gtk4 wl-clipboard xclip ydotool
 ```
 
 **Debian/Ubuntu:**
 ```bash
-sudo apt install python3 python3-gi gir1.2-gtk-4.0 wl-clipboard xclip
+sudo apt install python3 python3-gi gir1.2-gtk-4.0 wl-clipboard xclip ydotool
 ```
 
 **Fedora:**
 ```bash
-sudo dnf install python3 python3-gobject gtk4 wl-clipboard xclip
+sudo dnf install python3 python3-gobject gtk4 wl-clipboard xclip ydotool
 ```
 
 ### 2. Install Pop Translate
@@ -81,7 +83,17 @@ Clone the repository and run the installer script:
 ./install.sh
 ```
 
-### 3. Initialize & Configure
+### 3. Enable ydotool daemon (recommended for Wayland)
+
+To automatically copy selected text when the hotkey is pressed, enable the ydotool daemon:
+
+```bash
+systemctl --user enable --now ydotool
+```
+
+> **Note:** Without ydotool, Pop Translate still works but reads existing clipboard content instead of the current selection. X11 users use xdotool which requires no extra setup.
+
+### 4. Initialize & Configure
 
 Simply run `pop-translate` in your terminal or trigger it. 
 
@@ -95,7 +107,7 @@ Your configuration will be securely saved to `~/.config/pop-translate/config.jso
 
 *(Alternatively, you can configure them via environment variables `POP_TRANSLATE_API_KEY`, `POP_TRANSLATE_API_URL`, and `POP_TRANSLATE_MODEL` in your `.bashrc` or `.zshrc`)*
 
-### 4. Configure Global Keyboard Shortcut
+### 5. Configure Global Keyboard Shortcut
 
 **KDE Plasma:**
 1. Open **System Settings** → **Shortcuts** → **Custom Shortcuts**.

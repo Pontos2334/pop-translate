@@ -88,6 +88,33 @@ def get_selection():
     return text
 
 
+def simulate_copy():
+    if _is_wayland():
+        try:
+            subprocess.run(
+                ["ydotool", "key", "29:1", "110:1", "110:0", "29:0"],
+                timeout=1,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
+    else:
+        try:
+            subprocess.run(
+                ["xdotool", "key", "ctrl+Insert"],
+                timeout=1,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
+
+
 def copy_text(text):
     if _is_wayland():
         try:
