@@ -8,8 +8,10 @@ DEFAULTS = {
     "api_key": "",
     "api_url": "https://api.deepseek.com/chat/completions",
     "model": "deepseek-chat",
-    "timeout": 15,
+    "timeout": 60,
 }
+
+OLD_DEFAULT_TIMEOUT = 15
 
 
 class Config:
@@ -31,8 +33,9 @@ class Config:
                 if data.get("model"):
                     self.model = data["model"]
                 if data.get("timeout"):
-                    self.timeout = int(data["timeout"])
-            except (json.JSONDecodeError, OSError):
+                    timeout = int(data["timeout"])
+                    self.timeout = DEFAULTS["timeout"] if timeout == OLD_DEFAULT_TIMEOUT else timeout
+            except (json.JSONDecodeError, OSError, ValueError):
                 pass
         self._apply_env()
 

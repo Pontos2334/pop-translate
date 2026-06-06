@@ -1,5 +1,5 @@
 import re
-from .api import call_api
+from .api import call_api, stream_api
 from .history import HistoryDB
 
 
@@ -106,6 +106,15 @@ def _is_error(result):
     return any(result.startswith(p) for p in prefixes)
 
 
+def _request_timeout(config, thinking_enabled=False, detailed=False, chat_request=False):
+    timeout = config.timeout
+    if chat_request:
+        return max(timeout, 120 if thinking_enabled else 90)
+    if thinking_enabled or detailed:
+        return max(timeout, 90)
+    return timeout
+
+
 def translate(text, config, history_db, model=None, thinking_enabled=False, use_cache=True):
     if use_cache and not model and not thinking_enabled:
         cached = history_db.lookup(text)
@@ -117,10 +126,38 @@ def translate(text, config, history_db, model=None, thinking_enabled=False, use_
         config,
         model=model,
         thinking_enabled=thinking_enabled,
+        timeout=_request_timeout(config, thinking_enabled=thinking_enabled),
     )
     if use_cache and not model and not thinking_enabled and not _is_error(result):
         history_db.save(text, result)
     return result
+
+
+def translate_stream(text, config, history_db, model=None, thinking_enabled=False, use_cache=True):
+    if use_cache and not model and not thinking_enabled:
+        cached = history_db.lookup(text)
+        if cached:
+            yield cached
+            return
+
+    chunks = []
+    has_error = False
+    for chunk in stream_api(
+        _translate_prompt(text),
+        text,
+        config,
+        model=model,
+        thinking_enabled=thinking_enabled,
+        timeout=_request_timeout(config, thinking_enabled=thinking_enabled),
+    ):
+        if _is_error(chunk):
+            has_error = True
+        chunks.append(chunk)
+        yield chunk
+
+    result = "".join(chunks).strip()
+    if use_cache and not model and not thinking_enabled and result and not has_error and not _is_error(result):
+        history_db.save(text, result)
 
 
 _CODE_EXPLAIN_PROMPT = (
@@ -149,7 +186,39 @@ def explain(text, config, model=None, thinking_enabled=False, detailed=False):
         config,
         model=model,
         thinking_enabled=thinking_enabled,
+        timeout=_request_timeout(config, thinking_enabled=thinking_enabled, detailed=detailed),
     )
+
+
+def explain_stream(text, config, model=None, thinking_enabled=False, detailed=False):
+    if is_code_or_error(text):
+        prompt = _CODE_EXPLAIN_DETAILED_PROMPT if detailed else _CODE_EXPLAIN_PROMPT
+    else:
+        prompt = _EXPLAIN_DETAILED_PROMPT if detailed else _EXPLAIN_PROMPT
+    yield from stream_api(
+        prompt,
+        text,
+        config,
+        model=model,
+        thinking_enabled=thinking_enabled,
+        timeout=_request_timeout(config, thinking_enabled=thinking_enabled, detailed=detailed),
+    )
+
+
+def _chat_messages(text, translated, explanation, chat_messages, user_input, include_context=True):
+    messages = [{"role": "system", "content": _CHAT_SYSTEM_PROMPT}]
+    if include_context:
+        context_parts = [f"原文：{text}"]
+        if translated:
+            context_parts.append(f"译文：{translated}")
+        if explanation:
+            context_parts.append(f"解释：{explanation}")
+        messages.append({"role": "user", "content": "上下文信息如下：\n" + "\n".join(context_parts)})
+        messages.append({"role": "assistant", "content": "好的，我已了解这段文字的上下文，请问你有什么问题？"})
+    for msg in chat_messages:
+        messages.append(msg)
+    messages.append({"role": "user", "content": user_input})
+    return messages
 
 
 def chat(
@@ -163,23 +232,34 @@ def chat(
     thinking_enabled=False,
     include_context=True,
 ):
-    messages = [{"role": "system", "content": _CHAT_SYSTEM_PROMPT}]
-    if include_context:
-        context_parts = [f"原文：{text}"]
-        if translated:
-            context_parts.append(f"译文：{translated}")
-        if explanation:
-            context_parts.append(f"解释：{explanation}")
-        messages.append({"role": "user", "content": "上下文信息如下：\n" + "\n".join(context_parts)})
-        messages.append({"role": "assistant", "content": "好的，我已了解这段文字的上下文，请问你有什么问题？"})
-    for msg in chat_messages:
-        messages.append(msg)
-    messages.append({"role": "user", "content": user_input})
     return call_api(
         None,
         None,
         config,
-        messages=messages,
+        messages=_chat_messages(text, translated, explanation, chat_messages, user_input, include_context),
         model=model,
         thinking_enabled=thinking_enabled,
+        timeout=_request_timeout(config, thinking_enabled=thinking_enabled, chat_request=True),
+    )
+
+
+def chat_stream(
+    text,
+    translated,
+    explanation,
+    chat_messages,
+    user_input,
+    config,
+    model=None,
+    thinking_enabled=False,
+    include_context=True,
+):
+    yield from stream_api(
+        None,
+        None,
+        config,
+        messages=_chat_messages(text, translated, explanation, chat_messages, user_input, include_context),
+        model=model,
+        thinking_enabled=thinking_enabled,
+        timeout=_request_timeout(config, thinking_enabled=thinking_enabled, chat_request=True),
     )

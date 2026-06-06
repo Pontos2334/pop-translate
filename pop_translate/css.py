@@ -135,6 +135,14 @@ CSS = b"""
     font-size: 13.5px;
     line-height: 1.5;
     letter-spacing: -0.1px;
+    background-color: transparent;
+    padding: 0;
+    border: none;
+}
+
+.orig text {
+    color: #18181b;
+    background-color: transparent;
 }
 
 .orig-edit {
@@ -161,6 +169,13 @@ CSS = b"""
     line-height: 1.6;
     padding: 2px 0;
     letter-spacing: -0.1px;
+    background-color: transparent;
+    border: none;
+}
+
+.result text {
+    color: #18181b;
+    background-color: transparent;
 }
 
 .explain-title {
@@ -178,6 +193,13 @@ CSS = b"""
     font-weight: 500;
     line-height: 1.6;
     letter-spacing: -0.1px;
+    background-color: transparent;
+    border: none;
+}
+
+.explain-body text {
+    color: #18181b;
+    background-color: transparent;
 }
 
 .hint {
@@ -381,6 +403,12 @@ scrollbar slider:hover {
     font-weight: 500;
     line-height: 1.6;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    border: none;
+}
+
+.chat-bubble-user text {
+    background-color: #18181b;
+    color: #ffffff;
 }
 
 .chat-bubble-ai {
@@ -392,6 +420,11 @@ scrollbar slider:hover {
     font-weight: 500;
     line-height: 1.6;
     border: 1px solid #e4e4e7;
+}
+
+.chat-bubble-ai text {
+    background-color: #f4f4f5;
+    color: #18181b;
 }
 
 
