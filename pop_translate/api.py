@@ -56,8 +56,9 @@ def _build_payload(system_prompt, user_text, config, messages=None, model=None, 
         "messages": payload_messages,
         "temperature": 0.3,
         "max_tokens": 2048,
-        "thinking": {"type": "enabled" if thinking_enabled else "disabled"},
     }
+    if thinking_enabled:
+        payload["thinking"] = {"type": "enabled"}
     if stream:
         payload["stream"] = True
     return payload
@@ -138,6 +139,7 @@ def stream_api(
     model=None,
     thinking_enabled=False,
     timeout=None,
+    cancel_event=None,
 ):
     req = _build_request(
         _build_payload(system_prompt, user_text, config, messages, model, thinking_enabled, stream=True),
@@ -146,9 +148,13 @@ def stream_api(
     yielded_any = False
 
     for attempt in range(MAX_RETRIES + 1):
+        if cancel_event is not None and cancel_event.is_set():
+            return
         try:
             with urllib.request.urlopen(req, timeout=timeout or config.timeout) as resp:
                 for raw_line in resp:
+                    if cancel_event is not None and cancel_event.is_set():
+                        return
                     line = raw_line.decode("utf-8", errors="replace").strip()
                     delta, done = _stream_delta(line)
                     if done:
@@ -162,6 +168,8 @@ def stream_api(
             max_retries = MAX_TIMEOUT_RETRIES if _is_timeout_error(e) else MAX_RETRIES
             if yielded_any or not retryable or attempt == max_retries:
                 yield _sanitize_error(msg) if retryable else msg
+                return
+            if cancel_event is not None and cancel_event.is_set():
                 return
             time.sleep(2 ** attempt)
 

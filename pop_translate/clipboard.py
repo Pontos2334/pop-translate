@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 
 
 def _is_wayland():

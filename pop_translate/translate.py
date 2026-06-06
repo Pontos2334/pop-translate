@@ -1,6 +1,7 @@
 import re
 from .api import call_api, stream_api
-from .history import HistoryDB
+
+TRANSLATE_PROMPT_VERSION = "translate:v1"
 
 
 def _has_chinese(text):
@@ -116,8 +117,9 @@ def _request_timeout(config, thinking_enabled=False, detailed=False, chat_reques
 
 
 def translate(text, config, history_db, model=None, thinking_enabled=False, use_cache=True):
-    if use_cache and not model and not thinking_enabled:
-        cached = history_db.lookup(text)
+    cache_model = model or config.model
+    if use_cache and not thinking_enabled:
+        cached = history_db.lookup(text, model=cache_model, prompt_version=TRANSLATE_PROMPT_VERSION)
         if cached:
             return cached
     result = call_api(
@@ -128,14 +130,17 @@ def translate(text, config, history_db, model=None, thinking_enabled=False, use_
         thinking_enabled=thinking_enabled,
         timeout=_request_timeout(config, thinking_enabled=thinking_enabled),
     )
-    if use_cache and not model and not thinking_enabled and not _is_error(result):
-        history_db.save(text, result)
+    if use_cache and not thinking_enabled and not _is_error(result):
+        history_db.save(text, result, model=cache_model, prompt_version=TRANSLATE_PROMPT_VERSION)
     return result
 
 
-def translate_stream(text, config, history_db, model=None, thinking_enabled=False, use_cache=True):
-    if use_cache and not model and not thinking_enabled:
-        cached = history_db.lookup(text)
+def translate_stream(text, config, history_db, model=None, thinking_enabled=False, use_cache=True, cancel_event=None):
+    cache_model = model or config.model
+    if cancel_event is not None and cancel_event.is_set():
+        return
+    if use_cache and not thinking_enabled:
+        cached = history_db.lookup(text, model=cache_model, prompt_version=TRANSLATE_PROMPT_VERSION)
         if cached:
             yield cached
             return
@@ -149,15 +154,18 @@ def translate_stream(text, config, history_db, model=None, thinking_enabled=Fals
         model=model,
         thinking_enabled=thinking_enabled,
         timeout=_request_timeout(config, thinking_enabled=thinking_enabled),
+        cancel_event=cancel_event,
     ):
+        if cancel_event is not None and cancel_event.is_set():
+            return
         if _is_error(chunk):
             has_error = True
         chunks.append(chunk)
         yield chunk
 
     result = "".join(chunks).strip()
-    if use_cache and not model and not thinking_enabled and result and not has_error and not _is_error(result):
-        history_db.save(text, result)
+    if use_cache and not thinking_enabled and result and not has_error and not _is_error(result):
+        history_db.save(text, result, model=cache_model, prompt_version=TRANSLATE_PROMPT_VERSION)
 
 
 _CODE_EXPLAIN_PROMPT = (
@@ -190,7 +198,9 @@ def explain(text, config, model=None, thinking_enabled=False, detailed=False):
     )
 
 
-def explain_stream(text, config, model=None, thinking_enabled=False, detailed=False):
+def explain_stream(text, config, model=None, thinking_enabled=False, detailed=False, cancel_event=None):
+    if cancel_event is not None and cancel_event.is_set():
+        return
     if is_code_or_error(text):
         prompt = _CODE_EXPLAIN_DETAILED_PROMPT if detailed else _CODE_EXPLAIN_PROMPT
     else:
@@ -202,6 +212,7 @@ def explain_stream(text, config, model=None, thinking_enabled=False, detailed=Fa
         model=model,
         thinking_enabled=thinking_enabled,
         timeout=_request_timeout(config, thinking_enabled=thinking_enabled, detailed=detailed),
+        cancel_event=cancel_event,
     )
 
 
@@ -253,7 +264,10 @@ def chat_stream(
     model=None,
     thinking_enabled=False,
     include_context=True,
+    cancel_event=None,
 ):
+    if cancel_event is not None and cancel_event.is_set():
+        return
     yield from stream_api(
         None,
         None,
@@ -262,4 +276,5 @@ def chat_stream(
         model=model,
         thinking_enabled=thinking_enabled,
         timeout=_request_timeout(config, thinking_enabled=thinking_enabled, chat_request=True),
+        cancel_event=cancel_event,
     )

@@ -2,6 +2,7 @@ import shutil
 import sys
 import os
 import subprocess
+import tempfile
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
@@ -17,16 +18,35 @@ from .ui.setup_dialog import SetupDialog
 
 
 _EASYOCR_READER = None
+_LAST_OCR_IMAGE = None
 
 
-def capture_screenshot():
+def _new_ocr_image_path():
+    fd, path = tempfile.mkstemp(prefix="pop_translate_ocr_", suffix=".png")
+    os.close(fd)
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    return path
+
+
+def _cleanup_file(path):
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def capture_screenshot(tmp_img=None):
+    global _LAST_OCR_IMAGE
     import time
-    tmp_img = "/tmp/pop_translate_ocr.png"
+    tmp_img = tmp_img or _new_ocr_image_path()
+    _LAST_OCR_IMAGE = tmp_img
     if os.path.exists(tmp_img):
-        try:
-            os.remove(tmp_img)
-        except Exception:
-            pass
+        _cleanup_file(tmp_img)
 
     screenshot_tools = [
         ["spectacle", "-r", "-b", "-o", tmp_img],
@@ -42,12 +62,14 @@ def capture_screenshot():
 
     if cmd is None:
         print("未找到截图工具，请安装 spectacle、gnome-screenshot 或 scrot", file=sys.stderr)
+        _cleanup_file(tmp_img)
         return False
 
     try:
         proc = subprocess.Popen(cmd)
     except Exception as e:
         print(f"截图失败: {e}", file=sys.stderr)
+        _cleanup_file(tmp_img)
         return False
 
     start_time = time.time()
@@ -56,6 +78,7 @@ def capture_screenshot():
     while time.time() - start_time < timeout:
         if proc.poll() is not None:
             if not os.path.exists(tmp_img):
+                _cleanup_file(tmp_img)
                 return False
 
         if os.path.exists(tmp_img):
@@ -70,13 +93,14 @@ def capture_screenshot():
             proc.terminate()
         except Exception:
             pass
+    _cleanup_file(tmp_img)
     return False
 
 
-def ocr_image():
+def ocr_image(tmp_img=None):
     global _EASYOCR_READER
-    tmp_img = "/tmp/pop_translate_ocr.png"
-    if not os.path.exists(tmp_img):
+    tmp_img = tmp_img or _LAST_OCR_IMAGE
+    if not tmp_img or not os.path.exists(tmp_img):
         return ""
         
     # 2. Try EasyOCR first (GPU/CPU accelerated, highly accurate)
@@ -89,10 +113,7 @@ def ocr_image():
         text = "\n".join(result).strip()
         
         # Clean up tmp image
-        try:
-            os.remove(tmp_img)
-        except Exception:
-            pass
+        _cleanup_file(tmp_img)
         return text
     except ImportError:
         # EasyOCR not installed, fallback silently to Tesseract
@@ -118,10 +139,7 @@ def ocr_image():
             text = ""
             
     # Clean up tmp image
-    try:
-        os.remove(tmp_img)
-    except Exception:
-        pass
+    _cleanup_file(tmp_img)
         
     return text
 
@@ -183,8 +201,9 @@ def main():
         if not text:
             sys.exit(0)
 
-    # Copy original text to clipboard
-    copy_text(text)
+    # Copy original text to clipboard. OCR mode copies the recognized text after OCR finishes.
+    if not ocr_bootstrapping:
+        copy_text(text)
 
     # Route automatically to Explain if code or error message is detected
     if ocr_bootstrapping:

@@ -358,22 +358,6 @@ dropdown.model-select button arrow {
     background-color: rgba(22, 163, 74, 0.08);
 }
 
-/* Custom Styled Scrollbar (Thin macOS Style) */
-scrollbar {
-    background-color: transparent;
-}
-
-scrollbar slider {
-    background-color: rgba(0, 0, 0, 0.10);
-    border-radius: 4px;
-    min-width: 6px;
-    min-height: 6px;
-}
-
-scrollbar slider:hover {
-    background-color: rgba(0, 0, 0, 0.25);
-}
-
 /* Shortcut Instruction Bar */
 .shortcut-bar {
     padding: 6px 14px;

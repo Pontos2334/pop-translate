@@ -21,8 +21,8 @@ from ..i18n import (
 from ..translate import translate_stream, explain_stream, chat_stream, is_code_or_error
 from ..clipboard import copy_text
 
-MODELS = ("deepseek-v4-flash", "deepseek-v4-pro")
-DEFAULT_MODEL = "deepseek-v4-flash"
+BUILTIN_MODELS = ("deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash", "deepseek-v4-pro")
+WINDOW_WIDTH = 640
 BARE_DOMAIN_RE = re.compile(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}([/?#].*)?$")
 
 
@@ -62,6 +62,10 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._translate_request_thinking = False
         self._explain_request_thinking = False
         self._chat_request_thinking = False
+        self._chat_request_include_context = True
+        self._translate_cancel_event = None
+        self._explain_cancel_event = None
+        self._chat_cancel_event = None
         self._max_content_height = 420
         self._translate_model = self._initial_model()
         self._explain_model = self._initial_model()
@@ -73,10 +77,11 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._chat_include_context = True
         self._autoclose_timeout_id = None
         self._ocr_bootstrapping = ocr_bootstrapping
+        self._model_choices = self._build_model_choices()
 
         self.set_decorated(False)
         self.set_resizable(True)
-        self.set_default_size(480, 320)
+        self.set_default_size(WINDOW_WIDTH, 320)
 
         self._load_css()
         self._build_ui()
@@ -110,12 +115,46 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._start_autoclose_timer()
 
     def _on_close(self, _window):
+        self._cancel_active_requests()
         self._stop_autoclose_timer()
         if self._resize_timeout_id:
             GLib.source_remove(self._resize_timeout_id)
             self._resize_timeout_id = None
         self.get_application().quit()
         return False
+
+    def _cancel_translation_request(self):
+        if self._translate_cancel_event is not None:
+            self._translate_cancel_event.set()
+        self._translate_cancel_event = None
+        self._translate_loading = False
+        self._translate_request_text = None
+        self._translate_request_model = None
+        self._translate_request_thinking = False
+
+    def _cancel_explain_request(self):
+        if self._explain_cancel_event is not None:
+            self._explain_cancel_event.set()
+        self._explain_cancel_event = None
+        self._explain_loading = False
+        self._explain_request_text = None
+        self._explain_request_model = None
+        self._explain_request_thinking = False
+
+    def _cancel_chat_request(self):
+        if self._chat_cancel_event is not None:
+            self._chat_cancel_event.set()
+        self._chat_cancel_event = None
+        self._chat_loading = False
+        self._chat_request_text = None
+        self._chat_request_model = None
+        self._chat_request_thinking = False
+        self._chat_request_include_context = True
+
+    def _cancel_active_requests(self):
+        self._cancel_translation_request()
+        self._cancel_explain_request()
+        self._cancel_chat_request()
 
     def _start_autoclose_timer(self):
         self._stop_autoclose_timer()
@@ -261,6 +300,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._ocr_bootstrapping = False
         self._reset_autoclose_timer()
         self.show()
+        self._cancel_active_requests()
         if not text:
             # Show empty translate tab if no text was captured
             self.original_text = ""
@@ -278,6 +318,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self.explanation = ""
         self.chat_messages = []
         self._chat_stream_text = ""
+        threading.Thread(target=copy_text, args=(text,), daemon=True).start()
         
         if is_code_or_error(text):
             self._switch_tab("explain")
@@ -335,6 +376,8 @@ class TranslateWindow(Gtk.ApplicationWindow):
         hint = Gtk.Label(label=SHORTCUT_HINT)
         hint.set_css_classes(["shortcut-hint"])
         hint.set_halign(Gtk.Align.START)
+        hint.set_hexpand(True)
+        hint.set_ellipsize(Pango.EllipsizeMode.END)
         bar.append(hint)
         self.outer.append(bar)
 
@@ -389,11 +432,14 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._start_translation(self._api_model(self._translate_model), False, True)
 
     def _start_translation(self, model, thinking_enabled, use_cache):
+        self._cancel_translation_request()
         text = self.text
+        cancel_event = threading.Event()
         self._translate_loading = True
         self._translate_request_text = text
         self._translate_request_model = model
         self._translate_request_thinking = thinking_enabled
+        self._translate_cancel_event = cancel_event
 
         def worker():
             chunks = []
@@ -404,29 +450,39 @@ class TranslateWindow(Gtk.ApplicationWindow):
                 model=model,
                 thinking_enabled=thinking_enabled,
                 use_cache=use_cache,
+                cancel_event=cancel_event,
             ):
+                if cancel_event.is_set():
+                    return
                 chunks.append(chunk)
-                GLib.idle_add(self._on_translate_chunk, text, model, thinking_enabled, chunk)
+                GLib.idle_add(self._on_translate_chunk, text, model, thinking_enabled, cancel_event, chunk)
             result = "".join(chunks).strip()
-            GLib.idle_add(self._on_translate_done, text, model, thinking_enabled, result)
+            GLib.idle_add(self._on_translate_done, text, model, thinking_enabled, cancel_event, result)
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _initial_model(self):
-        return self.config.model if self.config.model in MODELS else DEFAULT_MODEL
+        return self.config.model
 
     def _selected_model(self, dropdown):
         index = dropdown.get_selected()
-        if index >= len(MODELS):
-            return DEFAULT_MODEL
-        return MODELS[index]
+        if index >= len(self._model_choices):
+            return self.config.model
+        return self._model_choices[index]
 
     def _select_model(self, dropdown, model):
         try:
-            index = MODELS.index(model)
+            index = self._model_choices.index(model)
         except ValueError:
-            index = MODELS.index(DEFAULT_MODEL)
+            index = 0
         dropdown.set_selected(index)
+
+    def _build_model_choices(self):
+        choices = []
+        for name in (self.config.model, *BUILTIN_MODELS):
+            if name and name not in choices:
+                choices.append(name)
+        return tuple(choices)
 
     def _api_model(self, selected_model):
         return None if selected_model == self.config.model else selected_model
@@ -447,7 +503,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         bar.set_css_classes(["control-bar"])
         bar.set_halign(Gtk.Align.END)
 
-        model_dropdown = Gtk.DropDown.new_from_strings(list(MODELS))
+        model_dropdown = Gtk.DropDown.new_from_strings(list(self._model_choices))
         model_dropdown.set_css_classes(["model-select"])
         self._select_model(model_dropdown, current_model)
         if on_model_changed:
@@ -484,20 +540,32 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._start_explanation(self._api_model(self._explain_model), False)
 
     def _start_explanation(self, model, thinking_enabled, detailed=False):
+        self._cancel_explain_request()
         text = self.text
+        cancel_event = threading.Event()
         self._explain_loading = True
         self._explain_request_text = text
         self._explain_request_model = model
         self._explain_request_thinking = thinking_enabled
         self._explain_detailed = detailed
+        self._explain_cancel_event = cancel_event
 
         def worker():
             chunks = []
-            for chunk in explain_stream(text, self.config, model=model, thinking_enabled=thinking_enabled, detailed=detailed):
+            for chunk in explain_stream(
+                text,
+                self.config,
+                model=model,
+                thinking_enabled=thinking_enabled,
+                detailed=detailed,
+                cancel_event=cancel_event,
+            ):
+                if cancel_event.is_set():
+                    return
                 chunks.append(chunk)
-                GLib.idle_add(self._on_explain_chunk, text, model, thinking_enabled, chunk)
+                GLib.idle_add(self._on_explain_chunk, text, model, thinking_enabled, cancel_event, chunk)
             result = "".join(chunks).strip()
-            GLib.idle_add(self._on_explain_done, text, model, thinking_enabled, result)
+            GLib.idle_add(self._on_explain_done, text, model, thinking_enabled, cancel_event, result)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -615,7 +683,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         controls.set_css_classes(["control-bar", "chat-control-bar"])
 
-        self._chat_model_dropdown = Gtk.DropDown.new_from_strings(list(MODELS))
+        self._chat_model_dropdown = Gtk.DropDown.new_from_strings(list(self._model_choices))
         self._chat_model_dropdown.set_css_classes(["model-select"])
         self._select_model(self._chat_model_dropdown, self._chat_model)
         self._chat_model_dropdown.connect("notify::selected", self._on_chat_model_changed)
@@ -692,20 +760,35 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
     def _on_chat_model_changed(self, dropdown, param):
         self._chat_model = self._selected_model(dropdown)
+        self._cancel_chat_if_loading()
 
     def _on_chat_thinking_toggled(self, check):
         self._chat_thinking = check.get_active()
+        self._cancel_chat_if_loading()
 
     def _on_chat_context_toggle(self, btn):
         self._chat_include_context = not self._chat_include_context
+        if self._cancel_chat_if_loading():
+            return
         btn.set_label(BTN_WITH_CONTEXT if self._chat_include_context else BTN_NO_CONTEXT)
 
     def _toggle_chat_context(self):
         self._chat_include_context = not self._chat_include_context
+        self._cancel_chat_if_loading()
         if self._current_tab == "chat":
             self._clear_content()
             self._show_chat_tab()
             self._resize_to_content()
+
+    def _cancel_chat_if_loading(self):
+        if not self._chat_loading:
+            return False
+        self._cancel_chat_request()
+        if self._current_tab == "chat":
+            self._clear_content()
+            self._show_chat_tab()
+            self._resize_to_content()
+        return True
 
     def _wrap_scroll(self, child):
         scrolled = Gtk.ScrolledWindow()
@@ -928,9 +1011,12 @@ class TranslateWindow(Gtk.ApplicationWindow):
             self._set_text_view_markdown(self._explain_result_view, explanation)
             self._resize_to_content()
 
-    def _is_translate_request_current(self, text, model, thinking_enabled):
+    def _is_translate_request_current(self, text, model, thinking_enabled, cancel_event):
         return (
-            text == self.text
+            cancel_event is not None
+            and not cancel_event.is_set()
+            and self._translate_cancel_event is cancel_event
+            and text == self.text
             and self._translate_model == self._display_model(model)
             and self._translate_thinking == thinking_enabled
             and self._translate_request_text == text
@@ -938,9 +1024,12 @@ class TranslateWindow(Gtk.ApplicationWindow):
             and self._translate_request_thinking == thinking_enabled
         )
 
-    def _is_explain_request_current(self, text, model, thinking_enabled):
+    def _is_explain_request_current(self, text, model, thinking_enabled, cancel_event):
         return (
-            text == self.text
+            cancel_event is not None
+            and not cancel_event.is_set()
+            and self._explain_cancel_event is cancel_event
+            and text == self.text
             and self._explain_model == self._display_model(model)
             and self._explain_thinking == thinking_enabled
             and self._explain_request_text == text
@@ -948,8 +1037,8 @@ class TranslateWindow(Gtk.ApplicationWindow):
             and self._explain_request_thinking == thinking_enabled
         )
 
-    def _on_translate_chunk(self, text, model, thinking_enabled, chunk):
-        if not self._is_translate_request_current(text, model, thinking_enabled):
+    def _on_translate_chunk(self, text, model, thinking_enabled, cancel_event, chunk):
+        if not self._is_translate_request_current(text, model, thinking_enabled, cancel_event):
             return False
         if not chunk:
             return False
@@ -960,8 +1049,8 @@ class TranslateWindow(Gtk.ApplicationWindow):
             self._resize_to_content()
         return False
 
-    def _on_explain_chunk(self, text, model, thinking_enabled, chunk):
-        if not self._is_explain_request_current(text, model, thinking_enabled):
+    def _on_explain_chunk(self, text, model, thinking_enabled, cancel_event, chunk):
+        if not self._is_explain_request_current(text, model, thinking_enabled, cancel_event):
             return False
         if not chunk:
             return False
@@ -972,9 +1061,10 @@ class TranslateWindow(Gtk.ApplicationWindow):
             self._resize_to_content()
         return False
 
-    def _on_translate_done(self, text, model, thinking_enabled, result):
+    def _on_translate_done(self, text, model, thinking_enabled, cancel_event, result):
         if (
-            self._translate_request_text == text
+            self._translate_cancel_event is cancel_event
+            and self._translate_request_text == text
             and self._translate_request_model == model
             and self._translate_request_thinking == thinking_enabled
         ):
@@ -982,8 +1072,10 @@ class TranslateWindow(Gtk.ApplicationWindow):
             self._translate_request_text = None
             self._translate_request_model = None
             self._translate_request_thinking = False
+            self._translate_cancel_event = None
         if (
-            text != self.text
+            cancel_event.is_set()
+            or text != self.text
             or self._translate_model != self._display_model(model)
             or self._translate_thinking != thinking_enabled
         ):
@@ -993,9 +1085,10 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self.set_translation(result)
         return False
 
-    def _on_explain_done(self, text, model, thinking_enabled, result):
+    def _on_explain_done(self, text, model, thinking_enabled, cancel_event, result):
         if (
-            self._explain_request_text == text
+            self._explain_cancel_event is cancel_event
+            and self._explain_request_text == text
             and self._explain_request_model == model
             and self._explain_request_thinking == thinking_enabled
         ):
@@ -1003,8 +1096,10 @@ class TranslateWindow(Gtk.ApplicationWindow):
             self._explain_request_text = None
             self._explain_request_model = None
             self._explain_request_thinking = False
+            self._explain_cancel_event = None
         if (
-            text != self.text
+            cancel_event.is_set()
+            or text != self.text
             or self._explain_model != self._display_model(model)
             or self._explain_thinking != thinking_enabled
         ):
@@ -1083,23 +1178,12 @@ class TranslateWindow(Gtk.ApplicationWindow):
         if not new_text:
             return
 
+        self._cancel_active_requests()
         self.text = new_text
         self._editing = False
         self.translated = ""
         self.explanation = ""
         self.chat_messages = []
-        self._translate_loading = False
-        self._explain_loading = False
-        self._chat_loading = False
-        self._translate_request_text = None
-        self._explain_request_text = None
-        self._chat_request_text = None
-        self._translate_request_model = None
-        self._explain_request_model = None
-        self._chat_request_model = None
-        self._translate_request_thinking = False
-        self._explain_request_thinking = False
-        self._chat_request_thinking = False
         self._chat_stream_text = ""
         self._clear_content()
         self._show_translate_tab()
@@ -1114,23 +1198,12 @@ class TranslateWindow(Gtk.ApplicationWindow):
         if not new_text:
             return
 
+        self._cancel_active_requests()
         self.text = new_text
         self._editing = False
         self.translated = ""
         self.explanation = ""
         self.chat_messages = []
-        self._translate_loading = False
-        self._explain_loading = False
-        self._chat_loading = False
-        self._translate_request_text = None
-        self._explain_request_text = None
-        self._chat_request_text = None
-        self._translate_request_model = None
-        self._explain_request_model = None
-        self._chat_request_model = None
-        self._translate_request_thinking = False
-        self._explain_request_thinking = False
-        self._chat_request_thinking = False
         self._chat_stream_text = ""
         self._explain_detailed = False
         self._clear_content()
@@ -1203,6 +1276,8 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
 
         self._chat_send_btn.set_sensitive(False)
+        self._cancel_chat_request()
+        cancel_event = threading.Event()
         self._chat_loading = True
         request_text = self.text
         request_model = self._api_model(self._chat_model)
@@ -1211,6 +1286,8 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._chat_request_text = request_text
         self._chat_request_model = request_model
         self._chat_request_thinking = request_thinking
+        self._chat_request_include_context = request_include_context
+        self._chat_cancel_event = cancel_event
         self._chat_stream_text = ""
         self._chat_stream_view, thinking_align = self._append_chat_bubble("assistant", CHAT_THINKING)
 
@@ -1222,26 +1299,51 @@ class TranslateWindow(Gtk.ApplicationWindow):
                 model=request_model,
                 thinking_enabled=request_thinking,
                 include_context=request_include_context,
+                cancel_event=cancel_event,
             ):
+                if cancel_event.is_set():
+                    return
                 chunks.append(chunk)
-                GLib.idle_add(self._on_chat_chunk, request_text, request_model, request_thinking, chunk)
+                GLib.idle_add(
+                    self._on_chat_chunk,
+                    request_text,
+                    request_model,
+                    request_thinking,
+                    request_include_context,
+                    cancel_event,
+                    chunk,
+                )
             result = "".join(chunks).strip()
-            GLib.idle_add(self._on_chat_done, request_text, request_model, request_thinking, result, thinking_align)
+            GLib.idle_add(
+                self._on_chat_done,
+                request_text,
+                request_model,
+                request_thinking,
+                request_include_context,
+                cancel_event,
+                result,
+                thinking_align,
+            )
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _is_chat_request_current(self, text, model, thinking_enabled):
+    def _is_chat_request_current(self, text, model, thinking_enabled, include_context, cancel_event):
         return (
-            text == self.text
+            cancel_event is not None
+            and not cancel_event.is_set()
+            and self._chat_cancel_event is cancel_event
+            and text == self.text
             and self._chat_model == self._display_model(model)
             and self._chat_thinking == thinking_enabled
+            and self._chat_include_context == include_context
             and self._chat_request_text == text
             and self._chat_request_model == model
             and self._chat_request_thinking == thinking_enabled
+            and self._chat_request_include_context == include_context
         )
 
-    def _on_chat_chunk(self, text, model, thinking_enabled, chunk):
-        if not self._is_chat_request_current(text, model, thinking_enabled):
+    def _on_chat_chunk(self, text, model, thinking_enabled, include_context, cancel_event, chunk):
+        if not self._is_chat_request_current(text, model, thinking_enabled, include_context, cancel_event):
             return False
         if not chunk:
             return False
@@ -1254,21 +1356,29 @@ class TranslateWindow(Gtk.ApplicationWindow):
             self._resize_to_content()
         return False
 
-    def _on_chat_done(self, text, model, thinking_enabled, result, thinking_widget):
+    def _on_chat_done(self, text, model, thinking_enabled, include_context, cancel_event, result, thinking_widget):
         if (
-            self._chat_request_text == text
+            self._chat_cancel_event is cancel_event
+            and self._chat_request_text == text
             and self._chat_request_model == model
             and self._chat_request_thinking == thinking_enabled
+            and self._chat_request_include_context == include_context
         ):
             self._chat_loading = False
             self._chat_request_text = None
             self._chat_request_model = None
             self._chat_request_thinking = False
+            self._chat_request_include_context = True
+            self._chat_cancel_event = None
         if (
-            text != self.text
+            cancel_event.is_set()
+            or text != self.text
             or self._chat_model != self._display_model(model)
             or self._chat_thinking != thinking_enabled
+            or self._chat_include_context != include_context
         ):
+            if self._current_tab == "chat" and self._chat_send_btn is not None:
+                self._chat_send_btn.set_sensitive(True)
             return False
         if not result:
             result = self._chat_stream_text.strip()
@@ -1318,10 +1428,10 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
         _min_h, natural_h, _min_baseline, _natural_baseline = self.outer.measure(
             Gtk.Orientation.VERTICAL,
-            480,
+            WINDOW_WIDTH,
         )
         target_h = min(max(180, natural_h), max_h)
-        self.set_default_size(480, target_h)
+        self.set_default_size(WINDOW_WIDTH, target_h)
         self.queue_resize()
         return False
 
@@ -1340,18 +1450,21 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
     def _toggle_current_thinking(self):
         if self._current_tab == "translate" and not self._editing:
+            self._cancel_translation_request()
             self._translate_thinking = not self._translate_thinking
             self._clear_content()
             self._show_translate_tab()
             self._resize_to_content()
             return True
         if self._current_tab == "explain":
+            self._cancel_explain_request()
             self._explain_thinking = not self._explain_thinking
             self._clear_content()
             self._show_explain_tab()
             self._resize_to_content()
             return True
         if self._current_tab == "chat":
+            self._cancel_chat_request()
             self._chat_thinking = not self._chat_thinking
             self._clear_content()
             self._show_chat_tab()
