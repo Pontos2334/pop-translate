@@ -37,6 +37,7 @@ Pop Translate is designed with keyboard-first users in mind.
 - `R` — **Regenerate (重生成)** translation / explanation / chat message
 - `Y` — **Copy (复制)** translated text (only in Translate tab)
 - `F` — **Search (搜索)** selection online (opens in your default browser via Bing, or opens URL directly if selection is a URL)
+- `P` — **Pin / unpin** popup above other windows (KDE Wayland)
 - `T` — **Toggle Thinking Mode (思考)**
 - `X` — **Toggle Context (上下文)** inclusion in Chat mode
 - `Esc` — **Close (关闭)** popup window
@@ -100,7 +101,7 @@ Simply run `pop-translate` in your terminal or trigger it.
 If it's your first run, a setup wizard will appear:
 1. Enter your **API Key** (e.g. your DeepSeek or OpenAI key).
 2. Enter your **API URL** (Defaults to `https://api.deepseek.com/chat/completions`).
-3. Enter your **Model Name** (e.g. `deepseek-chat`).
+3. Enter your **Model Name** (defaults to `deepseek-v4-flash`; `deepseek-v4-pro` is also available).
 4. Click **Save** (保存).
 
 Your configuration will be securely saved to `~/.config/pop-translate/config.json`.
@@ -120,6 +121,18 @@ Your configuration will be securely saved to `~/.config/pop-translate/config.jso
 **Other Desktops (GNOME, i3, Sway, Hyprland, etc.):**
 Bind the executable `pop-translate` to your preferred keyboard shortcut in your desktop environment or window manager settings.
 
+### 6. Connect calibre Viewer
+
+The installer registers a `pop-translate://` URL handler and tries to set calibre viewer's internet search URL to:
+
+```text
+pop-translate://explain?q={q}
+```
+
+After that, select text in calibre viewer and click the selection popup bar's network-search button to open Pop Translate on the Explain tab. This passes the selected text directly and does not depend on global shortcuts, simulated copy, or clipboard reads.
+
+If the button still opens a browser, manually set calibre viewer's "URL to query when searching the internet" to the URL above.
+
 ---
 
 ## 🛠️ Configuration Options
@@ -130,7 +143,7 @@ All settings can be customized through the GUI setup or override via environment
 |----------|---------|-------------|
 | `POP_TRANSLATE_API_KEY` | *(Required)* | OpenAI-compatible API Key |
 | `POP_TRANSLATE_API_URL` | `https://api.deepseek.com/chat/completions` | API endpoint URL |
-| `POP_TRANSLATE_MODEL` | `deepseek-chat` | Model name |
+| `POP_TRANSLATE_MODEL` | `deepseek-v4-flash` | Model name |
 
 ---
 

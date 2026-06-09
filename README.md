@@ -37,6 +37,7 @@
 - `R` — **重新生成** 当前内容（重译/重解释/重新发送对话）
 - `Y` — **复制** 译文（仅在翻译页有效）
 - `F` — **网络搜索** 选中文本（若选中的是 URL 则直接在默认浏览器中打开，否则使用 Bing 搜索）
+- `P` — **置顶/取消置顶** 翻译视窗（KDE Wayland）
 - `T` — **开启/关闭 思考模式**（Thinking Mode）
 - `X` — **开启/关闭 包含上下文**（仅在对话页有效）
 - `Esc` — **关闭** 翻译视窗
@@ -100,7 +101,7 @@ systemctl --user enable --now ydotool
 由于是首次启动，程序将为您呈现配置向导：
 1. 输入您的 **API Key**（支持任何兼容 OpenAI 格式的厂商，如 DeepSeek、OpenAI、月之暗面等）。
 2. 输入您的 **API 地址**（默认为 DeepSeek: `https://api.deepseek.com/chat/completions`）。
-3. 输入您的 **模型名称**（例如 `deepseek-chat` 或 `deepseek-reasoner`）。
+3. 输入您的 **模型名称**（默认为 `deepseek-v4-flash`，也可使用 `deepseek-v4-pro`）。
 4. 点击 **保存**。
 
 您的配置将安全地保存在本地 `~/.config/pop-translate/config.json` 中。
@@ -120,6 +121,18 @@ systemctl --user enable --now ydotool
 **其他桌面环境 (GNOME, i3, Sway, Hyprland, etc.):**
 在您的桌面环境或窗口管理器设置中，将可执行命令 `pop-translate` 绑定到您指定的全局快捷键即可。
 
+### 6. 连接 calibre 阅读器
+
+安装脚本会注册 `pop-translate://` URL 处理器，并尝试把 calibre 阅读器的“网络搜索”URL 设置为：
+
+```text
+pop-translate://explain?q={q}
+```
+
+之后在 calibre 阅读器中选中文本，点击选择浮条里的网络搜索按钮，即可用 Pop Translate 打开解释页。这个路径直接传递选中文本，不依赖全局快捷键、模拟复制或剪贴板读取。
+
+如果点击后仍然打开浏览器，请在 calibre 阅读器设置中把“URL to query when searching the internet”手动改成上面的 URL。
+
 ---
 
 ## 🛠️ 配置环境变量选项
@@ -130,7 +143,7 @@ systemctl --user enable --now ydotool
 |----------|---------|-------------|
 | `POP_TRANSLATE_API_KEY` | *(必填)* | OpenAI 兼容的 API 密钥 |
 | `POP_TRANSLATE_API_URL` | `https://api.deepseek.com/chat/completions` | API 终结点地址 |
-| `POP_TRANSLATE_MODEL` | `deepseek-chat` | 调用的模型名称 |
+| `POP_TRANSLATE_MODEL` | `deepseek-v4-flash` | 调用的模型名称 |
 
 ---
 

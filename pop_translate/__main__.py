@@ -1,3 +1,4 @@
+import argparse
 import shutil
 import sys
 import os
@@ -40,6 +41,56 @@ def _cleanup_file(path):
         pass
 
 
+def _command_exists(command):
+    if os.path.isabs(command):
+        return os.path.exists(command) and os.access(command, os.X_OK)
+    return shutil.which(command) is not None
+
+
+def _snipaste_executable():
+    for name in ("Snipaste", "snipaste"):
+        path = shutil.which(name)
+        if path:
+            return path
+    return None
+
+
+def _is_snipaste_running():
+    names = ("Snipaste", "snipaste")
+    for name in names:
+        try:
+            if subprocess.run(
+                ["pgrep", "-x", name],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=1,
+            ).returncode == 0:
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def _ensure_snipaste_running(executable):
+    if _is_snipaste_running():
+        return True
+    try:
+        subprocess.Popen(
+            [executable],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return False
+
+    import time
+    for _ in range(20):
+        if _is_snipaste_running():
+            return True
+        time.sleep(0.1)
+    return False
+
+
 def capture_screenshot(tmp_img=None):
     global _LAST_OCR_IMAGE
     import time
@@ -48,20 +99,27 @@ def capture_screenshot(tmp_img=None):
     if os.path.exists(tmp_img):
         _cleanup_file(tmp_img)
 
-    screenshot_tools = [
-        ["spectacle", "-r", "-b", "-o", tmp_img],
-        ["gnome-screenshot", "-a", "-f", tmp_img],
-        ["scrot", "-s", tmp_img],
-    ]
+    screenshot_tools = []
+    snipaste = _snipaste_executable()
+    if snipaste and _ensure_snipaste_running(snipaste):
+        screenshot_tools.append(([snipaste, "snip", "-o", tmp_img], True))
+
+    screenshot_tools.extend([
+        (["spectacle", "-r", "-b", "-o", tmp_img], False),
+        (["gnome-screenshot", "-a", "-f", tmp_img], False),
+        (["scrot", "-s", tmp_img], False),
+    ])
 
     cmd = None
-    for tool_cmd in screenshot_tools:
-        if shutil.which(tool_cmd[0]):
+    waits_after_exit = False
+    for tool_cmd, tool_waits_after_exit in screenshot_tools:
+        if _command_exists(tool_cmd[0]):
             cmd = tool_cmd
+            waits_after_exit = tool_waits_after_exit
             break
 
     if cmd is None:
-        print("未找到截图工具，请安装 spectacle、gnome-screenshot 或 scrot", file=sys.stderr)
+        print("未找到截图工具，请安装并启动 Snipaste，或安装 spectacle、gnome-screenshot 或 scrot", file=sys.stderr)
         _cleanup_file(tmp_img)
         return False
 
@@ -77,7 +135,10 @@ def capture_screenshot(tmp_img=None):
 
     while time.time() - start_time < timeout:
         if proc.poll() is not None:
-            if not os.path.exists(tmp_img):
+            if not waits_after_exit and not os.path.exists(tmp_img):
+                _cleanup_file(tmp_img)
+                return False
+            if waits_after_exit and proc.returncode not in (0, None) and not os.path.exists(tmp_img):
                 _cleanup_file(tmp_img)
                 return False
 
@@ -167,7 +228,41 @@ class TranslateApp(Gtk.Application):
         self.win.present()
 
 
-def main():
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="pop-translate",
+        description="Show a Pop Translate popup for selected or supplied text.",
+    )
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("-o", "--ocr", action="store_true", help="capture an area and OCR it")
+    source.add_argument("--text", help="use this text directly instead of reading the clipboard")
+    parser.add_argument(
+        "--tab",
+        choices=("auto", "translate", "explain", "chat"),
+        default="auto",
+        help="default tab to open when text is supplied",
+    )
+    return parser.parse_args(argv)
+
+
+def resolve_default_tab(text, requested_tab="auto", ocr_bootstrapping=False):
+    if requested_tab != "auto":
+        return requested_tab
+    if ocr_bootstrapping:
+        return "translate"
+    if is_code_or_error(text):
+        return "explain"
+    return "translate" if should_translate(text) else "explain"
+
+
+def run_popup(text, config, default_tab, ocr_bootstrapping=False):
+    history_db = HistoryDB()
+    app = TranslateApp(text, config, history_db, default_tab, ocr_bootstrapping)
+    return app.run(None)
+
+
+def main(argv=None):
+    args = parse_args(argv)
     config = Config()
     config.load()
 
@@ -186,36 +281,32 @@ def main():
         app.run(None)
         sys.exit(0)
 
-    # Check for CLI OCR flag
     text = ""
     ocr_bootstrapping = False
-    if "--ocr" in sys.argv or "-o" in sys.argv:
+    should_copy_original = False
+    if args.ocr:
         if not capture_screenshot():
             sys.exit(0)
         text = OCR_LOADING
-        default_tab = "translate"
         ocr_bootstrapping = True
+    elif args.text is not None:
+        text = args.text.strip()
+        if not text:
+            sys.exit(0)
     else:
         simulate_copy()
         text = get_selection()
         if not text:
             sys.exit(0)
+        should_copy_original = True
 
-    # Copy original text to clipboard. OCR mode copies the recognized text after OCR finishes.
-    if not ocr_bootstrapping:
+    # Copy original text only for the classic selection hotkey path. Direct text
+    # integrations such as calibre URL handling should not overwrite clipboard.
+    if should_copy_original:
         copy_text(text)
 
-    # Route automatically to Explain if code or error message is detected
-    if ocr_bootstrapping:
-        default_tab = "translate"
-    elif is_code_or_error(text):
-        default_tab = "explain"
-    else:
-        default_tab = "translate" if should_translate(text) else "explain"
-
-    history_db = HistoryDB()
-    app = TranslateApp(text, config, history_db, default_tab, ocr_bootstrapping)
-    sys.exit(app.run(None))
+    default_tab = resolve_default_tab(text, args.tab, ocr_bootstrapping)
+    sys.exit(run_popup(text, config, default_tab, ocr_bootstrapping))
 
 
 if __name__ == "__main__":

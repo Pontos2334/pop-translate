@@ -59,10 +59,40 @@ CSS = b"""
     border-color: #a1a1aa;
 }
 
+.title-btn.pin-active {
+    color: #ffffff;
+    background-color: #18181b;
+    border-color: #18181b;
+}
+
+.title-btn.pin-active label {
+    color: #ffffff;
+}
+
+.title-btn.pin-active:hover {
+    color: #ffffff;
+    background-color: #27272a;
+    border-color: #27272a;
+}
+
+.title-btn.pin-active:hover label {
+    color: #ffffff;
+}
+
 .title-btn:backdrop {
     color: #71717a;
     background-color: #ffffff;
     border-color: #e4e4e7;
+}
+
+.title-btn.pin-active:backdrop {
+    color: #ffffff;
+    background-color: #18181b;
+    border-color: #18181b;
+}
+
+.title-btn.pin-active:backdrop label {
+    color: #ffffff;
 }
 
 .close-btn {
@@ -218,6 +248,13 @@ CSS = b"""
     margin-top: 14px;
     padding-top: 10px;
     border-top: 1px solid #e4e4e7;
+}
+
+.speed-label {
+    color: #71717a;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 0;
 }
 
 .chat-control-bar {
@@ -376,6 +413,14 @@ dropdown.model-select button arrow {
 /* Premium Chat Layout */
 .chat-area {
     padding: 14px;
+}
+
+.chat-row {
+    background-color: transparent;
+}
+
+.chat-bubble-wrap {
+    background-color: transparent;
 }
 
 .chat-bubble-user {

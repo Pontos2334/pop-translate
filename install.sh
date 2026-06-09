@@ -7,6 +7,11 @@ LIB_DIR="$HOME/.local/lib"
 BIN_DIR="$HOME/.local/bin"
 TARGET_DIR="$LIB_DIR/$PACKAGE_NAME"
 WRAPPER="$BIN_DIR/pop-translate"
+URL_WRAPPER="$BIN_DIR/pop-translate-url"
+DESKTOP_DIR="$HOME/.local/share/applications"
+DESKTOP_FILE="$DESKTOP_DIR/pop-translate-url.desktop"
+CALIBRE_VIEWER_CONFIG="$HOME/.config/calibre/viewer-webengine.json"
+POP_TRANSLATE_CALIBRE_URL="pop-translate://explain?q={q}"
 
 echo "=== Pop Translate Installer ==="
 echo
@@ -61,6 +66,69 @@ exec python3 -m pop_translate "$@"
 WRAPPER_EOF
 chmod +x "$WRAPPER"
 
+echo "Creating URL handler script at $URL_WRAPPER..."
+cat > "$URL_WRAPPER" << 'URL_WRAPPER_EOF'
+#!/bin/sh
+export PYTHONPATH="$HOME/.local/lib${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m pop_translate.url_handler "$@"
+URL_WRAPPER_EOF
+chmod +x "$URL_WRAPPER"
+
+echo "Registering pop-translate:// URL handler..."
+mkdir -p "$DESKTOP_DIR"
+cat > "$DESKTOP_FILE" << DESKTOP_EOF
+[Desktop Entry]
+Type=Application
+Name=Pop Translate URL Handler
+Exec=$URL_WRAPPER %u
+NoDisplay=true
+Terminal=false
+MimeType=x-scheme-handler/pop-translate;
+DESKTOP_EOF
+
+if command -v xdg-mime &>/dev/null; then
+    xdg-mime default pop-translate-url.desktop x-scheme-handler/pop-translate || true
+else
+    echo "  [WARN] xdg-mime not found; register x-scheme-handler/pop-translate manually if needed"
+fi
+
+if [ -f "$CALIBRE_VIEWER_CONFIG" ]; then
+    echo "Configuring calibre viewer network search URL..."
+    python3 - "$CALIBRE_VIEWER_CONFIG" "$POP_TRANSLATE_CALIBRE_URL" << 'PY_EOF'
+import json
+import os
+import shutil
+import sys
+
+path, target_url = sys.argv[1], sys.argv[2]
+backup = path + ".bak-pop-translate"
+
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except Exception as e:
+    print(f"  [WARN] Could not read calibre config: {e}")
+    raise SystemExit(0)
+
+if data.get("net_search_url") == target_url:
+    print("  [OK] calibre net_search_url already configured")
+    raise SystemExit(0)
+
+if not os.path.exists(backup):
+    shutil.copy2(path, backup)
+    print(f"  [OK] backup created: {backup}")
+
+data["net_search_url"] = target_url
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+print("  [OK] calibre net_search_url -> pop-translate://explain?q={q}")
+PY_EOF
+else
+    echo "  [INFO] calibre viewer config not found; set network search URL manually to:"
+    echo "         $POP_TRANSLATE_CALIBRE_URL"
+fi
+
 echo
 echo "=== Installation complete ==="
 echo
@@ -75,4 +143,9 @@ echo "  3. Configure keyboard shortcut:"
 echo "     KDE: System Settings → Shortcuts → Add Custom → pop-translate"
 echo "     Other: Bind 'pop-translate' in your WM config"
 echo
-echo "  4. Reload shell: source ~/.bashrc"
+echo "  4. calibre integration:"
+echo "     Select text in calibre viewer, then click the selection bar network-search button."
+echo "     If it still opens a browser, set calibre's internet search URL to:"
+echo "     $POP_TRANSLATE_CALIBRE_URL"
+echo
+echo "  5. Reload shell: source ~/.bashrc"

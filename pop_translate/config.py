@@ -7,11 +7,12 @@ CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 DEFAULTS = {
     "api_key": "",
     "api_url": "https://api.deepseek.com/chat/completions",
-    "model": "deepseek-chat",
+    "model": "deepseek-v4-flash",
     "timeout": 60,
 }
 
 OLD_DEFAULT_TIMEOUT = 15
+DEPRECATED_DEFAULT_MODELS = {"deepseek-chat", "deepseek-reasoner"}
 
 
 class Config:
@@ -32,6 +33,8 @@ class Config:
                     self.api_url = data["api_url"]
                 if data.get("model"):
                     self.model = data["model"]
+                    if self.model in DEPRECATED_DEFAULT_MODELS:
+                        self.model = DEFAULTS["model"]
                 if data.get("timeout"):
                     timeout = int(data["timeout"])
                     self.timeout = DEFAULTS["timeout"] if timeout == OLD_DEFAULT_TIMEOUT else timeout

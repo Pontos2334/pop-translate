@@ -3,11 +3,19 @@ import re
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 
 from .i18n import ERROR_API, ERROR_API_KEY, ERROR_NETWORK, ERROR_TIMEOUT, ERROR_UNKNOWN
 
 MAX_RETRIES = 2
 MAX_TIMEOUT_RETRIES = 1
+
+
+@dataclass(frozen=True)
+class StreamEvent:
+    kind: str
+    text: str = ""
+    data: object = None
 
 
 def _sanitize_error(error):
@@ -42,7 +50,16 @@ def _classify_error(error):
     return ERROR_UNKNOWN, False
 
 
-def _build_payload(system_prompt, user_text, config, messages=None, model=None, thinking_enabled=False, stream=False):
+def _build_payload(
+    system_prompt,
+    user_text,
+    config,
+    messages=None,
+    model=None,
+    thinking_enabled=False,
+    stream=False,
+    include_usage=False,
+):
     if messages is not None:
         payload_messages = messages
     else:
@@ -55,12 +72,13 @@ def _build_payload(system_prompt, user_text, config, messages=None, model=None, 
         "model": model or config.model,
         "messages": payload_messages,
         "temperature": 0.3,
-        "max_tokens": 2048,
     }
     if thinking_enabled:
         payload["thinking"] = {"type": "enabled"}
     if stream:
         payload["stream"] = True
+        if include_usage:
+            payload["stream_options"] = {"include_usage": True}
     return payload
 
 
@@ -78,25 +96,36 @@ def _build_request(payload, config):
 
 def _stream_delta(line):
     if not line.startswith("data:"):
-        return None, False
+        return None, None, None, False
 
     data = line[5:].strip()
     if not data:
-        return None, False
+        return None, None, None, False
     if data == "[DONE]":
-        return None, True
+        return None, None, None, True
 
     try:
         chunk = json.loads(data)
+    except json.JSONDecodeError:
+        return None, None, None, False
+
+    usage = chunk.get("usage")
+    if isinstance(usage, dict) and not chunk.get("choices"):
+        return None, None, usage, False
+
+    try:
         choice = chunk["choices"][0]
-    except (json.JSONDecodeError, KeyError, TypeError, IndexError):
-        return None, False
+    except (KeyError, TypeError, IndexError):
+        return None, None, usage if isinstance(usage, dict) else None, False
 
     delta = choice.get("delta") or {}
+    reasoning = (
+        delta.get("reasoning_content")
+        or delta.get("reasoning")
+        or delta.get("thinking")
+    )
     content = delta.get("content")
-    if content is None:
-        return None, False
-    return content, False
+    return content, reasoning, usage if isinstance(usage, dict) else None, False
 
 
 def call_api(
@@ -141,29 +170,53 @@ def stream_api(
     timeout=None,
     cancel_event=None,
 ):
-    req = _build_request(
-        _build_payload(system_prompt, user_text, config, messages, model, thinking_enabled, stream=True),
+    payload = _build_payload(
+        system_prompt,
+        user_text,
         config,
+        messages,
+        model,
+        thinking_enabled,
+        stream=True,
+        include_usage=True,
     )
     yielded_any = False
+    usage_retry_done = False
 
     for attempt in range(MAX_RETRIES + 1):
         if cancel_event is not None and cancel_event.is_set():
             return
         try:
+            req = _build_request(payload, config)
             with urllib.request.urlopen(req, timeout=timeout or config.timeout) as resp:
                 for raw_line in resp:
                     if cancel_event is not None and cancel_event.is_set():
                         return
                     line = raw_line.decode("utf-8", errors="replace").strip()
-                    delta, done = _stream_delta(line)
+                    delta, reasoning, usage, done = _stream_delta(line)
                     if done:
                         return
+                    if usage is not None:
+                        yield StreamEvent("usage", data=usage)
+                    if reasoning:
+                        yielded_any = True
+                        yield StreamEvent("reasoning", reasoning)
                     if delta:
                         yielded_any = True
                         yield delta
                 return
         except Exception as e:
+            if (
+                not yielded_any
+                and not usage_retry_done
+                and isinstance(e, urllib.error.HTTPError)
+                and e.code == 400
+                and "stream_options" in payload
+            ):
+                payload = dict(payload)
+                payload.pop("stream_options", None)
+                usage_retry_done = True
+                continue
             msg, retryable = _classify_error(e)
             max_retries = MAX_TIMEOUT_RETRIES if _is_timeout_error(e) else MAX_RETRIES
             if yielded_any or not retryable or attempt == max_retries:
