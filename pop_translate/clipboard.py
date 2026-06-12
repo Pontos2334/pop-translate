@@ -1,6 +1,9 @@
+import glob
+import json
 import os
 import subprocess
 import sys
+import stat
 
 
 def _is_wayland():
@@ -89,8 +92,79 @@ def get_selection():
     return text
 
 
+def _kitty_remote_addresses():
+    addresses = []
+
+    def add(address):
+        if address and address not in addresses:
+            addresses.append(address)
+
+    env_address = os.environ.get("KITTY_LISTEN_ON", "")
+    if env_address:
+        if env_address.startswith(("unix:", "tcp:")):
+            add(env_address)
+        else:
+            add(f"unix:{env_address}")
+
+    tmpdir = os.environ.get("TMPDIR") or "/tmp"
+    for path in glob.glob(os.path.join(tmpdir, "mykitty*")):
+        try:
+            info = os.stat(path)
+        except OSError:
+            continue
+        if info.st_uid != os.getuid() or not stat.S_ISSOCK(info.st_mode):
+            continue
+        add(f"unix:{path}")
+
+    return addresses
+
+
+def _kitty_has_focused_window(address):
+    try:
+        result = subprocess.run(
+            ["kitty", "@", "--to", address, "ls"],
+            capture_output=True,
+            text=True,
+            timeout=0.6,
+        )
+    except FileNotFoundError:
+        return False
+    except Exception:
+        return False
+
+    if result.returncode != 0:
+        return False
+
+    try:
+        windows = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return False
+
+    return any(window.get("is_focused") for window in windows)
+
+
+def _copy_with_focused_kitty():
+    for address in _kitty_remote_addresses():
+        if not _kitty_has_focused_window(address):
+            continue
+        try:
+            result = subprocess.run(
+                ["kitty", "@", "--to", address, "action", "--match", "state:focused", "copy_to_clipboard"],
+                timeout=0.6,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            continue
+        if result.returncode == 0:
+            return True
+    return False
+
+
 def simulate_copy():
     if _is_wayland():
+        if _copy_with_focused_kitty():
+            return
         try:
             subprocess.run(
                 ["ydotool", "key", "29:1", "110:1", "110:0", "29:0"],
