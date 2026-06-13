@@ -17,22 +17,21 @@ from ..css import CSS
 from ..i18n import (
     APP_TITLE, TRANSLATING, EXPLAINING, OCR_LOADING,
     BTN_COPY, BTN_COPIED, BTN_COPY_ORIGINAL, BTN_COPIED_ORIG,
-    BTN_EDIT, BTN_RETRANSLATE, BTN_REEXPLAIN, BTN_SHORT_EXPLAIN, BTN_DETAILED_EXPLAIN, BTN_CANCEL, BTN_SEND,
-    BTN_SEARCH, BTN_SCREENSHOT, BTN_PIN, BTN_PINNED, BTN_THINKING, BTN_WITH_CONTEXT, BTN_NO_CONTEXT,
+    BTN_EDIT, BTN_RETRANSLATE, BTN_REEXPLAIN, BTN_SHORT_EXPLAIN, BTN_DETAILED_EXPLAIN, BTN_CANCEL,
+    BTN_SEARCH, BTN_SCREENSHOT, BTN_PIN, BTN_PINNED, BTN_THINKING,
     SPEED_LABEL,
     TAB_TRANSLATE, TAB_EXPLAIN, TAB_CHAT,
-    SHORTCUT_HINT, CHAT_PLACEHOLDER, CHAT_THINKING,
+    SHORTCUT_HINT, CHAT_THINKING,
 )
 from ..api import StreamEvent
 from ..translate import translate_stream, explain_stream, chat_stream, is_code_or_error
 from ..clipboard import copy_text
+from .chat_panel import ChatPanel
 
 BUILTIN_MODELS = ("deepseek-v4-flash", "deepseek-v4-pro")
 WINDOW_WIDTH = 640
 STREAM_MARKDOWN_REFRESH_DELAY_MS = 200
 BARE_DOMAIN_RE = re.compile(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}([/?#].*)?$")
-CHAT_BUBBLE_MIN_WIDTH = 96
-CHAT_BUBBLE_MAX_WIDTH = 480
 KWIN_DBUS_DEST = "org.kde.KWin"
 KWIN_SCRIPTING_PATH = "/Scripting"
 KWIN_SCRIPTING_IFACE = "org.kde.kwin.Scripting"
@@ -47,7 +46,6 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self.text = text
         self.translated = ""
         self.explanation = ""
-        self.chat_messages = []
         self.config = config
         self.history_db = history_db
         self._loading_label = None
@@ -59,43 +57,31 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._translate_copy_btn = None
         self._explain_result_view = None
         self._explain_controls = None
-        self._chat_stream_view = None
-        self._chat_speed_label = None
-        self._chat_stream_text = ""
         self._speed_stats = {}
         self._readonly_text_min_heights = {}
         self._readonly_text_widths = {}
         self._content_scroll = None
         self._resize_timeout_id = None
         self._explain_markdown_refresh_id = None
-        self._chat_markdown_refresh_id = None
         self._default_tab = default_tab
         self._editing = False
         self._translate_loading = False
         self._explain_loading = False
-        self._chat_loading = False
         self._translate_request_text = None
         self._explain_request_text = None
-        self._chat_request_text = None
         self._translate_request_model = None
         self._explain_request_model = None
-        self._chat_request_model = None
         self._translate_request_thinking = False
         self._explain_request_thinking = False
-        self._chat_request_thinking = False
-        self._chat_request_include_context = True
         self._translate_cancel_event = None
         self._explain_cancel_event = None
-        self._chat_cancel_event = None
         self._max_content_height = 420
         self._translate_model = self._initial_model()
         self._explain_model = self._initial_model()
-        self._chat_model = self._initial_model()
         self._translate_thinking = False
         self._explain_thinking = False
         self._explain_detailed = False
-        self._chat_thinking = False
-        self._chat_include_context = True
+        self._chat_panel = None
         self._autoclose_timeout_id = None
         self._pinned = False
         self.pin_btn = None
@@ -144,6 +130,8 @@ class TranslateWindow(Gtk.ApplicationWindow):
             GLib.source_remove(self._resize_timeout_id)
             self._resize_timeout_id = None
         self._cancel_pending_markdown_refreshes()
+        if self._chat_panel is not None:
+            self._chat_panel.cancel()
         self.get_application().quit()
         return False
 
@@ -168,22 +156,11 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._explain_request_thinking = False
         self._reset_speed_stats("explain")
 
-    def _cancel_chat_request(self):
-        if self._chat_cancel_event is not None:
-            self._chat_cancel_event.set()
-        self._cancel_scheduled_markdown_refresh("_chat_markdown_refresh_id")
-        self._chat_cancel_event = None
-        self._chat_loading = False
-        self._chat_request_text = None
-        self._chat_request_model = None
-        self._chat_request_thinking = False
-        self._chat_request_include_context = True
-        self._reset_speed_stats("chat")
-
     def _cancel_active_requests(self):
         self._cancel_translation_request()
         self._cancel_explain_request()
-        self._cancel_chat_request()
+        if self._chat_panel is not None:
+            self._chat_panel.cancel()
 
     def _start_autoclose_timer(self):
         if getattr(self, "_pinned", False):
@@ -476,24 +453,21 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self.show()
         self._cancel_active_requests()
         if not text:
-            # Show empty translate tab if no text was captured
             self.original_text = ""
             self.text = ""
             self.translated = ""
             self.explanation = ""
-            self.chat_messages = []
-            self._chat_stream_text = ""
+            self._reset_chat()
             self._switch_tab("translate")
             return
-            
+
         self.original_text = text
         self.text = text
         self.translated = ""
         self.explanation = ""
-        self.chat_messages = []
-        self._chat_stream_text = ""
+        self._reset_chat()
         threading.Thread(target=copy_text, args=(text,), daemon=True).start()
-        
+
         if is_code_or_error(text):
             self._switch_tab("explain")
         else:
@@ -557,6 +531,10 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
     def _clear_content(self):
         self._cancel_pending_markdown_refreshes()
+        if self._chat_panel is not None:
+            self._chat_panel.cancel_pending_refreshes()
+            if self._chat_panel.get_parent() is not None:
+                self.content_area.remove(self._chat_panel)
         while True:
             child = self.content_area.get_first_child()
             if child is None:
@@ -571,8 +549,6 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._translate_copy_btn = None
         self._explain_result_view = None
         self._explain_controls = None
-        self._chat_stream_view = None
-        self._chat_speed_label = None
         self._readonly_text_min_heights = {}
         self._readonly_text_widths = {}
         self._content_scroll = None
@@ -602,11 +578,12 @@ class TranslateWindow(Gtk.ApplicationWindow):
             self._show_explain_tab()
         elif tab_id == "chat":
             self._show_chat_tab()
+            self._chat_panel.grab_input_focus()
 
         self._resize_to_content()
 
     def _ensure_translation(self):
-        if self._translate_loading or self.translated:
+        if not self.text or self._translate_loading or self.translated:
             return
         self._start_translation(self._api_model(self._translate_model), False, True)
 
@@ -678,8 +655,6 @@ class TranslateWindow(Gtk.ApplicationWindow):
             return self._translate_speed_label
         if scope == "explain":
             return self._explain_speed_label
-        if scope == "chat":
-            return self._chat_speed_label
         return None
 
     def _start_speed_stats(self, scope):
@@ -801,7 +776,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
 
     def _ensure_explanation(self):
-        if self._explain_loading or self.explanation:
+        if not self.text or self._explain_loading or self.explanation:
             return
         self._start_explanation(self._api_model(self._explain_model), False)
 
@@ -953,134 +928,72 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self.content_area.append(self._wrap_scroll(box))
 
     def _show_chat_tab(self):
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        vbox.set_hexpand(True)
+        if self._chat_panel is None:
+            self._chat_panel = ChatPanel(
+                model_choices=self._model_choices,
+                initial_model=self._initial_model(),
+                initial_thinking=self._translate_thinking,
+            )
+            self._chat_panel.set_callbacks(
+                on_request=self._handle_chat_request,
+                on_resize=self._request_chat_resize,
+                on_settings_changed=self._handle_chat_settings_changed,
+                on_clear_context=self._handle_chat_clear_context,
+            )
+        self.content_area.append(self._chat_panel)
 
-        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        controls.set_css_classes(["control-bar", "chat-control-bar"])
-        controls.set_hexpand(True)
+    def _handle_chat_settings_changed(self, panel):
+        self._translate_thinking = panel.thinking
+        self._explain_thinking = panel.thinking
 
-        self._chat_model_dropdown = Gtk.DropDown.new_from_strings(list(self._model_choices))
-        self._chat_model_dropdown.set_css_classes(["model-select"])
-        self._select_model(self._chat_model_dropdown, self._chat_model)
-        self._chat_model_dropdown.connect("notify::selected", self._on_chat_model_changed)
-        controls.append(self._chat_model_dropdown)
+    def _handle_chat_clear_context(self, panel):
+        self.text = ""
+        self.translated = ""
+        self.explanation = ""
+        self._cancel_translation_request()
+        self._cancel_explain_request()
 
-        self._chat_thinking_check = Gtk.CheckButton(label=BTN_THINKING)
-        self._chat_thinking_check.set_css_classes(["thinking-toggle"])
-        self._chat_thinking_check.set_active(self._chat_thinking)
-        self._chat_thinking_check.connect("toggled", self._on_chat_thinking_toggled)
-        controls.append(self._chat_thinking_check)
+    def _handle_chat_request(self, panel, messages_before, user_text, settings):
+        cancel_event = threading.Event()
+        panel.start_stream(cancel_event)
+        request_model = self._api_model(settings.model)
+        request_text = self.text
+        request_translated = self.translated
+        request_explanation = self.explanation
 
-        self._chat_context_btn = Gtk.Button(label=BTN_WITH_CONTEXT if self._chat_include_context else BTN_NO_CONTEXT)
-        self._chat_context_btn.set_css_classes(["action-btn"])
-        self._chat_context_btn.connect("clicked", self._on_chat_context_toggle)
-        controls.append(self._chat_context_btn)
+        def worker():
+            chunks = []
+            for chunk in chat_stream(
+                request_text,
+                request_translated,
+                request_explanation,
+                messages_before,
+                user_text,
+                self.config,
+                model=request_model,
+                thinking_enabled=settings.thinking_enabled,
+                include_context=settings.include_context,
+                cancel_event=cancel_event,
+            ):
+                if cancel_event.is_set():
+                    return
+                if isinstance(chunk, StreamEvent):
+                    GLib.idle_add(panel.handle_event, cancel_event, chunk)
+                    continue
+                chunks.append(chunk)
+                GLib.idle_add(panel.append_chunk, cancel_event, chunk)
+            result = "".join(chunks).strip()
+            GLib.idle_add(panel.finish_stream, cancel_event, result)
 
-        spacer = Gtk.Box()
-        spacer.set_hexpand(True)
-        controls.append(spacer)
+        threading.Thread(target=worker, daemon=True).start()
 
-        self._chat_speed_label = Gtk.Label(label="")
-        self._chat_speed_label.set_css_classes(["speed-label"])
-        self._chat_speed_label.set_halign(Gtk.Align.END)
-        self._chat_speed_label.set_ellipsize(Pango.EllipsizeMode.END)
-        self._chat_speed_label.set_visible(False)
-        controls.append(self._chat_speed_label)
-        self._refresh_speed_label("chat")
+    def _request_chat_resize(self, _panel):
+        self._resize_to_content()
 
-        vbox.append(controls)
+    def _reset_chat(self):
+        if self._chat_panel is not None:
+            self._chat_panel.reset()
 
-        self._chat_scroll = Gtk.ScrolledWindow()
-        self._chat_scroll.set_has_frame(False)
-        self._chat_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self._chat_scroll.set_propagate_natural_height(True)
-        self._chat_scroll.set_min_content_height(60)
-        self._chat_scroll.set_max_content_height(400)
-        self._chat_scroll.set_hexpand(True)
-
-        self._chat_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        self._chat_list.set_css_classes(["chat-area"])
-        self._chat_list.set_hexpand(True)
-        self._chat_scroll.set_child(self._chat_list)
-
-        for msg in self.chat_messages:
-            self._append_chat_bubble(msg["role"], msg["content"])
-
-        if self._chat_loading:
-            bubble_text = self._chat_stream_text or CHAT_THINKING
-            self._chat_stream_view, _align = self._append_chat_bubble("assistant", bubble_text)
-
-        vbox.append(self._chat_scroll)
-
-        input_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        input_bar.set_css_classes(["chat-input-bar"])
-        input_bar.set_hexpand(True)
-
-        scrolled_input = Gtk.ScrolledWindow()
-        scrolled_input.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled_input.set_min_content_height(36)
-        scrolled_input.set_max_content_height(100)
-        scrolled_input.set_propagate_natural_height(True)
-        scrolled_input.set_hexpand(True)
-        scrolled_input.set_focusable(False)
-
-        self._chat_input = Gtk.TextView()
-        self._chat_input.set_css_classes(["chat-input-view"])
-        self._chat_input.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self._chat_input.set_accepts_tab(False)
-
-        chat_key_ctrl = Gtk.EventControllerKey.new()
-        chat_key_ctrl.connect("key-pressed", self._on_chat_input_key)
-        self._chat_input.add_controller(chat_key_ctrl)
-
-        self._chat_input.get_buffer().connect("changed", self._on_chat_input_changed)
-
-        scrolled_input.set_child(self._chat_input)
-        input_bar.append(scrolled_input)
-
-        self._chat_send_btn = Gtk.Button(label=BTN_SEND)
-        self._chat_send_btn.set_css_classes(["chat-send"])
-        self._chat_send_btn.set_sensitive(not self._chat_loading)
-        self._chat_send_btn.connect("clicked", self._on_chat_send)
-        input_bar.append(self._chat_send_btn)
-
-        vbox.append(input_bar)
-        self.content_area.append(vbox)
-        self._chat_input.grab_focus()
-
-
-    def _on_chat_model_changed(self, dropdown, param):
-        self._chat_model = self._selected_model(dropdown)
-        self._cancel_chat_if_loading()
-
-    def _on_chat_thinking_toggled(self, check):
-        self._chat_thinking = check.get_active()
-        self._cancel_chat_if_loading()
-
-    def _on_chat_context_toggle(self, btn):
-        self._chat_include_context = not self._chat_include_context
-        if self._cancel_chat_if_loading():
-            return
-        btn.set_label(BTN_WITH_CONTEXT if self._chat_include_context else BTN_NO_CONTEXT)
-
-    def _toggle_chat_context(self):
-        self._chat_include_context = not self._chat_include_context
-        self._cancel_chat_if_loading()
-        if self._current_tab == "chat":
-            self._clear_content()
-            self._show_chat_tab()
-            self._resize_to_content()
-
-    def _cancel_chat_if_loading(self):
-        if not self._chat_loading:
-            return False
-        self._cancel_chat_request()
-        if self._current_tab == "chat":
-            self._clear_content()
-            self._show_chat_tab()
-            self._resize_to_content()
-        return True
 
     def _wrap_scroll(self, child):
         scrolled = Gtk.ScrolledWindow()
@@ -1250,7 +1163,6 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
     def _cancel_pending_markdown_refreshes(self):
         self._cancel_scheduled_markdown_refresh("_explain_markdown_refresh_id")
-        self._cancel_scheduled_markdown_refresh("_chat_markdown_refresh_id")
 
     def _schedule_explain_markdown_refresh(self):
         if self._explain_markdown_refresh_id or self._current_tab != "explain":
@@ -1258,14 +1170,6 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._explain_markdown_refresh_id = GLib.timeout_add(
             STREAM_MARKDOWN_REFRESH_DELAY_MS,
             self._refresh_explain_markdown,
-        )
-
-    def _schedule_chat_markdown_refresh(self):
-        if self._chat_markdown_refresh_id or self._current_tab != "chat":
-            return
-        self._chat_markdown_refresh_id = GLib.timeout_add(
-            STREAM_MARKDOWN_REFRESH_DELAY_MS,
-            self._refresh_chat_markdown,
         )
 
     def _render_markdown_preserving_scroll(self, view, text, scrolled):
@@ -1304,16 +1208,6 @@ class TranslateWindow(Gtk.ApplicationWindow):
             )
         return False
 
-    def _refresh_chat_markdown(self):
-        self._chat_markdown_refresh_id = None
-        if self._current_tab == "chat" and self._chat_stream_view is not None:
-            self._render_markdown_preserving_scroll(
-                self._chat_stream_view,
-                self._chat_stream_text,
-                self._chat_scroll if hasattr(self, "_chat_scroll") else None,
-            )
-        return False
-
     def _remove_label(self, label):
         if label is None:
             return
@@ -1343,52 +1237,6 @@ class TranslateWindow(Gtk.ApplicationWindow):
             detail_btn.add_css_class("primary")
         detail_btn.connect("clicked", self._on_explain_detailed)
         controls.append(detail_btn)
-
-    def _append_chat_bubble(self, role, text):
-        css_classes = ["chat-bubble-user"] if role == "user" else ["chat-bubble-ai"]
-        view = self._readonly_text_view(
-            text,
-            css_classes,
-            min_height=40,
-            markdown=(role != "user"),
-            width=CHAT_BUBBLE_MAX_WIDTH,
-        )
-        view.set_justification(Gtk.Justification.LEFT)
-
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        row.set_css_classes(["chat-row"])
-        row.set_hexpand(True)
-
-        spacer = Gtk.Box()
-        spacer.set_hexpand(True)
-
-        bubble = Gtk.Box()
-        bubble.set_css_classes(["chat-bubble-wrap"])
-        bubble.set_size_request(CHAT_BUBBLE_MIN_WIDTH, -1)
-        bubble.set_hexpand(False)
-        bubble.append(view)
-
-        if role == "user":
-            row.append(spacer)
-            row.append(bubble)
-        else:
-            row.append(bubble)
-            row.append(spacer)
-
-        self._chat_list.append(row)
-        self._scroll_chat_to_bottom()
-        return view, row
-
-    def _scroll_chat_to_bottom(self):
-        if not hasattr(self, "_chat_scroll") or self._chat_scroll is None:
-            return
-
-        def scroll():
-            adj = self._chat_scroll.get_vadjustment()
-            adj.set_value(max(0, adj.get_upper() - adj.get_page_size()))
-            return False
-
-        GLib.idle_add(scroll)
 
     def set_translation(self, translated):
         self.translated = translated
@@ -1566,6 +1414,9 @@ class TranslateWindow(Gtk.ApplicationWindow):
     def _on_translate_regenerate(self, btn, model_dropdown, thinking_check):
         self._translate_model = self._selected_model(model_dropdown)
         self._translate_thinking = thinking_check.get_active()
+        self._explain_thinking = self._translate_thinking
+        if self._chat_panel is not None:
+            self._chat_panel.set_thinking(self._translate_thinking)
         self._regenerate_translation()
 
     def _regenerate_translation(self):
@@ -1581,6 +1432,9 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
     def _on_explain_thinking_changed(self, thinking_check):
         self._explain_thinking = thinking_check.get_active()
+        self._translate_thinking = self._explain_thinking
+        if self._chat_panel is not None:
+            self._chat_panel.set_thinking(self._explain_thinking)
         self._cancel_explain_if_loading()
 
     def _cancel_explain_if_loading(self):
@@ -1596,6 +1450,9 @@ class TranslateWindow(Gtk.ApplicationWindow):
     def _on_explain_short(self, btn, model_dropdown, thinking_check):
         self._explain_model = self._selected_model(model_dropdown)
         self._explain_thinking = thinking_check.get_active()
+        self._translate_thinking = self._explain_thinking
+        if self._chat_panel is not None:
+            self._chat_panel.set_thinking(self._explain_thinking)
         self._regenerate_explanation(detailed=False)
 
     def _on_explain_detailed(self, btn):
@@ -1624,8 +1481,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._editing = False
         self.translated = ""
         self.explanation = ""
-        self.chat_messages = []
-        self._chat_stream_text = ""
+        self._reset_chat()
         self._clear_content()
         self._show_translate_tab()
         self._resize_to_content()
@@ -1644,9 +1500,8 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._editing = False
         self.translated = ""
         self.explanation = ""
-        self.chat_messages = []
-        self._chat_stream_text = ""
         self._explain_detailed = False
+        self._reset_chat()
         self._clear_content()
         self._show_explain_tab()
         self._resize_to_content()
@@ -1690,181 +1545,6 @@ class TranslateWindow(Gtk.ApplicationWindow):
         if " " not in candidate and BARE_DOMAIN_RE.match(candidate):
             return f"https://{candidate}"
         return f"https://www.bing.com/search?q={quote_plus(candidate)}"
-
-    def _on_chat_input_key(self, controller, keyval, keycode, state):
-        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
-            if state & (Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.CONTROL_MASK):
-                return False
-            self._on_chat_send(self._chat_input)
-            return True
-        return False
-
-    def _on_chat_send(self, widget):
-        if self._chat_loading:
-            return
-
-        buf = self._chat_input.get_buffer()
-        start = buf.get_start_iter()
-        end = buf.get_end_iter()
-        text = buf.get_text(start, end, False).strip()
-
-        if not text:
-            return
-
-        buf.set_text("")
-        self.chat_messages.append({"role": "user", "content": text})
-        self._append_chat_bubble("user", text)
-
-
-        self._chat_send_btn.set_sensitive(False)
-        self._cancel_chat_request()
-        cancel_event = threading.Event()
-        self._chat_loading = True
-        request_text = self.text
-        request_model = self._api_model(self._chat_model)
-        request_thinking = self._chat_thinking
-        request_include_context = self._chat_include_context
-        self._chat_request_text = request_text
-        self._chat_request_model = request_model
-        self._chat_request_thinking = request_thinking
-        self._chat_request_include_context = request_include_context
-        self._chat_cancel_event = cancel_event
-        self._chat_stream_text = ""
-        self._chat_stream_view, thinking_align = self._append_chat_bubble("assistant", CHAT_THINKING)
-        self._start_speed_stats("chat")
-
-        def worker():
-            chunks = []
-            for chunk in chat_stream(
-                request_text, self.translated, self.explanation,
-                self.chat_messages[:-1], text, self.config,
-                model=request_model,
-                thinking_enabled=request_thinking,
-                include_context=request_include_context,
-                cancel_event=cancel_event,
-            ):
-                if cancel_event.is_set():
-                    return
-                if isinstance(chunk, StreamEvent):
-                    GLib.idle_add(
-                        self._on_chat_stream_event,
-                        request_text,
-                        request_model,
-                        request_thinking,
-                        request_include_context,
-                        cancel_event,
-                        chunk,
-                    )
-                    continue
-                chunks.append(chunk)
-                GLib.idle_add(
-                    self._on_chat_chunk,
-                    request_text,
-                    request_model,
-                    request_thinking,
-                    request_include_context,
-                    cancel_event,
-                    chunk,
-                )
-            result = "".join(chunks).strip()
-            GLib.idle_add(
-                self._on_chat_done,
-                request_text,
-                request_model,
-                request_thinking,
-                request_include_context,
-                cancel_event,
-                result,
-                thinking_align,
-            )
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _is_chat_request_current(self, text, model, thinking_enabled, include_context, cancel_event):
-        return (
-            cancel_event is not None
-            and not cancel_event.is_set()
-            and self._chat_cancel_event is cancel_event
-            and text == self.text
-            and self._chat_model == self._display_model(model)
-            and self._chat_thinking == thinking_enabled
-            and self._chat_include_context == include_context
-            and self._chat_request_text == text
-            and self._chat_request_model == model
-            and self._chat_request_thinking == thinking_enabled
-            and self._chat_request_include_context == include_context
-        )
-
-    def _on_chat_stream_event(self, text, model, thinking_enabled, include_context, cancel_event, event):
-        if not self._is_chat_request_current(text, model, thinking_enabled, include_context, cancel_event):
-            return False
-        if event.kind == "usage":
-            self._record_speed_usage("chat", event.data)
-        elif event.kind == "reasoning":
-            self._on_chat_reasoning(text, model, thinking_enabled, include_context, cancel_event)
-        return False
-
-    def _on_chat_chunk(self, text, model, thinking_enabled, include_context, cancel_event, chunk):
-        if not self._is_chat_request_current(text, model, thinking_enabled, include_context, cancel_event):
-            return False
-        if not chunk:
-            return False
-        self._record_speed_chunk("chat", chunk)
-        if not self._chat_stream_text:
-            self._set_text_view_text(self._chat_stream_view, "")
-        self._chat_stream_text += chunk
-        if self._current_tab == "chat":
-            self._schedule_chat_markdown_refresh()
-        return False
-
-    def _on_chat_reasoning(self, text, model, thinking_enabled, include_context, cancel_event):
-        if not self._is_chat_request_current(text, model, thinking_enabled, include_context, cancel_event):
-            return False
-        if self._current_tab == "chat" and self._chat_stream_view is not None and not self._chat_stream_text:
-            self._set_text_view_text(self._chat_stream_view, CHAT_THINKING)
-        return False
-
-    def _on_chat_done(self, text, model, thinking_enabled, include_context, cancel_event, result, thinking_widget):
-        if (
-            self._chat_cancel_event is cancel_event
-            and self._chat_request_text == text
-            and self._chat_request_model == model
-            and self._chat_request_thinking == thinking_enabled
-            and self._chat_request_include_context == include_context
-        ):
-            self._chat_loading = False
-            self._chat_request_text = None
-            self._chat_request_model = None
-            self._chat_request_thinking = False
-            self._chat_request_include_context = True
-            self._chat_cancel_event = None
-        if (
-            cancel_event.is_set()
-            or text != self.text
-            or self._chat_model != self._display_model(model)
-            or self._chat_thinking != thinking_enabled
-            or self._chat_include_context != include_context
-        ):
-            if self._current_tab == "chat" and self._chat_send_btn is not None:
-                self._chat_send_btn.set_sensitive(True)
-            return False
-        if not result:
-            result = self._chat_stream_text.strip()
-        self.chat_messages.append({"role": "assistant", "content": result})
-        self._chat_stream_text = ""
-        self._cancel_scheduled_markdown_refresh("_chat_markdown_refresh_id")
-        self._render_markdown_preserving_scroll(
-            self._chat_stream_view,
-            result,
-            self._chat_scroll if hasattr(self, "_chat_scroll") else None,
-        )
-        if self._current_tab == "chat":
-            self._chat_send_btn.set_sensitive(True)
-        self._finish_speed_stats("chat")
-        return False
-
-    def _on_chat_input_changed(self, buf):
-        self._resize_to_content()
 
     def _content_height_limit(self):
         display = Gdk.Display.get_default()
@@ -1936,17 +1616,18 @@ class TranslateWindow(Gtk.ApplicationWindow):
             self._resize_to_content()
             return True
         if self._current_tab == "chat":
-            self._cancel_chat_request()
-            self._chat_thinking = not self._chat_thinking
-            self._clear_content()
-            self._show_chat_tab()
-            self._resize_to_content()
+            if self._chat_panel is not None:
+                self._chat_panel.toggle_thinking()
             return True
         return False
 
     def _on_key(self, controller, keyval, keycode, state):
         self._reset_autoclose_timer()
         if keyval == Gdk.KEY_Escape:
+            if self._chat_panel is not None and self._chat_panel.loading:
+                self._chat_panel.cancel()
+                self._chat_panel._remove_stream_bubble()
+                return True
             if self._editing:
                 self._on_edit_cancel(self.edit_btn)
                 return True
@@ -1992,7 +1673,8 @@ class TranslateWindow(Gtk.ApplicationWindow):
             return self._toggle_current_thinking()
         elif key == "x":
             if self._current_tab == "chat":
-                self._toggle_chat_context()
+                if self._chat_panel is not None:
+                    self._chat_panel.toggle_context()
                 return True
 
         return False

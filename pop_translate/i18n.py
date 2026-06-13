@@ -45,3 +45,11 @@ TAB_CHAT = "对话"
 SHORTCUT_HINT = "S 翻译 │ W 解释 │ C 对话 │ E 编辑 │ R 重试 │ Y 复制 │ F 搜索 │ P 置顶 │ T 思考 │ X 上下文 │ Esc 关闭"
 CHAT_PLACEHOLDER = "输入问题..."
 CHAT_THINKING = "思考中..."
+BTN_REGENERATE = "重新生成"
+BTN_EDIT_MSG = "编辑"
+BTN_CONFIRM_EDIT = "确认"
+BTN_COPY_MSG = "复制"
+BTN_COPIED_MSG = "已复制"
+BTN_CLEAR_CONTENT = "清空内容"
+
+

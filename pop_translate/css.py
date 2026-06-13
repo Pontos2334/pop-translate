@@ -456,6 +456,64 @@ dropdown.model-select button arrow {
     color: #18181b;
 }
 
+.chat-bubble-actions {
+    margin-top: 4px;
+}
+
+.chat-bubble-action-btn {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 6px;
+    border: none;
+    border-radius: 4px;
+    background-color: transparent;
+    color: #a1a1aa;
+    opacity: 0.7;
+    transition: all 0.15s ease;
+}
+
+.chat-bubble-action-btn:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+    color: #52525b;
+    opacity: 1;
+}
+
+.chat-bubble-action-btn:disabled {
+    color: #d4d4d8;
+    opacity: 0.5;
+}
+
+.chat-bubble-user .chat-bubble-action-btn {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.chat-bubble-user .chat-bubble-action-btn:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.8);
+    opacity: 1;
+}
+
+.chat-bubble-user .chat-bubble-action-btn:disabled {
+    color: rgba(255, 255, 255, 0.2);
+    opacity: 0.5;
+}
+
+.chat-bubble-edit-view,
+.chat-bubble-edit-view text {
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.6;
+    padding: 0;
+    background-color: transparent;
+    color: #ffffff;
+    caret-color: #ffffff;
+    border: none;
+}
+
+.chat-bubble-edit-sw {
+    background-color: transparent;
+    border: none;
+}
 
 .chat-input-bar {
     padding: 10px 14px;
@@ -627,4 +685,25 @@ dropdown.model-select button arrow {
     font-size: 12px;
     margin-top: 4px;
 }
+
+/* Chat Thinking Section */
+.chat-thinking-expander {
+    margin-bottom: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #71717a;
+}
+
+.chat-bubble-thinking-text,
+.chat-bubble-thinking-text text {
+    font-size: 12.5px;
+    color: #71717a;
+    line-height: 1.5;
+    font-style: italic;
+    background-color: transparent;
+    border: none;
+    border-left: 2px solid #d4d4d8;
+    padding-left: 8px;
+}
 """
+
