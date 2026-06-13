@@ -42,7 +42,5 @@ No automated tests exist. No build step — pure Python.
 - `ui/window.py` — Main popup window. All UI built programmatically (no Glade). Undecorated window with custom drag-to-move title bar, 180s inactivity auto-close. API calls run in daemon threads, results dispatched via `GLib.idle_add()`.
 - `ui/setup_dialog.py` — First-run API key configuration wizard.
 
-**Key patterns:**
-- Threaded API calls: `threading.Thread` + `GLib.idle_add()` for GTK main-loop dispatch. Each tab tracks loading state and discards stale responses.
-- Config: JSON file on disk, env vars override. `has_api_key` gates setup wizard vs main window.
-- No streaming (feature was reverted — `sse_parser.py` exists only in `__pycache__`).
+- Streaming: API calls stream chunks (e.g., chat_stream, translate_stream) and use sse parsing to dynamically update UI.
+- Chat Panel: Built dynamically with a custom collapsible expander for reasoning thinking process, inline message copying, settings sync, and context reset callbacks.

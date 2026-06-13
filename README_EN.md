@@ -15,13 +15,15 @@ Select any text, press a global shortcut, and get instant translation, detailed 
 - **🗂️ Powerful Tabbed Workflow**:
   - **Translate (翻译)** — Instant translation with smart bidirectional language detection (English ⇄ Chinese). Support for inline text editing to refine the source text.
   - **Explain (解释)** — Get a detailed explanation of unfamiliar concepts, syntax, or words within a card layout.
-  - **Chat (对话)** — Thread-safe, interactive chat view. Ask follow-up questions about the selected text or translation.
-- **🧠 Thinking Mode support** — Supports enabling/disabling deep thinking (e.g., DeepSeek R1 / thinking schemas) with a single click or keyboard shortcut.
-- **⚡ Keyboard-First Navigation** — Operates entirely mouse-free. Easy-to-remember shortcuts for tab switching, copying, editing, and toggling options.
-- **📭 Dynamic Height Auto-Sizing** — Interactive multi-line inputs dynamically grow the window size gracefully when you type, and instantly snap back when the message is sent or cleared.
+  - **Chat (对话)** — Thread-safe, interactive chat view. Ask follow-up questions about the selected text or translation. Supports one-click copy of assistant replies.
+- **🧠 Collapsible Thinking Process Panel** — Streams and visualizes the reasoning process (e.g. DeepSeek-R1) in a native collapsible expander (`Gtk.Expander`) with a premium left border. Auto-collapses when generating finishes to keep the UI clean.
+- **🧹 Reset to Pure Chat** — Clear Chat and all cached text/translation/explanation context with a single click of the "Clear Content (清空内容)" button to switch to pure dialog.
+- **⚡ Keyboard-First Navigation** — Operates entirely mouse-free. Easy-to-remember shortcuts for tab switching, copying, editing, and toggling options. Supports smart `Esc` key interception (stops active stream generation instead of closing the window).
+- **📭 Dynamic Height Auto-Sizing** — Interactive multi-line inputs dynamically grow the window size gracefully when you type, and instantly snap back when the message is sent or cleared. Chat edit box size matches bubble width with dynamic auto-sizing.
 - **🔒 Security & API Leak Protection** — Automatic redaction and sanitization of API keys, Bearer tokens, or generic `sk-` credentials in error messages or logs.
 - **💾 Local SQLite Caching** — Identical selection queries hit a local SQLite cache instantly, avoiding duplicate API calls. Auto-clears entries older than 24 hours to stay lightweight.
 - **🛸 Zero Idle Footprint** — Designed as a popup widget. Standard processes exit instantly upon closing, consuming zero background RAM.
+- **🔄 Synchronized Thinking State** — Seamless sync of the "Thinking" state toggles across Translate, Explain, and Chat tabs.
 
 ---
 
@@ -40,7 +42,7 @@ Pop Translate is designed with keyboard-first users in mind.
 - `P` — **Pin / unpin** popup above other windows (KDE Wayland)
 - `T` — **Toggle Thinking Mode (思考)**
 - `X` — **Toggle Context (上下文)** inclusion in Chat mode
-- `Esc` — **Close (关闭)** popup window
+- `Esc` — **Close (关闭)** popup window (during streaming, `Esc` cancels loading first instead of closing the window)
 
 ---
 
