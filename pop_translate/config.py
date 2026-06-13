@@ -16,13 +16,18 @@ DEPRECATED_DEFAULT_MODELS = {"deepseek-chat", "deepseek-reasoner"}
 
 
 class Config:
+    api_key: str
+    api_url: str
+    model: str
+    timeout: int
+
     def __init__(self):
         self.api_key = DEFAULTS["api_key"]
         self.api_url = DEFAULTS["api_url"]
         self.model = DEFAULTS["model"]
         self.timeout = DEFAULTS["timeout"]
 
-    def load(self):
+    def load(self) -> None:
         if os.path.exists(CONFIG_PATH):
             try:
                 with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -42,7 +47,7 @@ class Config:
                 pass
         self._apply_env()
 
-    def _apply_env(self):
+    def _apply_env(self) -> None:
         env_key = os.environ.get("POP_TRANSLATE_API_KEY", "")
         if env_key:
             self.api_key = env_key
@@ -53,7 +58,7 @@ class Config:
         if env_model:
             self.model = env_model
 
-    def save(self):
+    def save(self) -> None:
         os.makedirs(CONFIG_DIR, exist_ok=True)
         data = {
             "api_key": self.api_key,
@@ -65,5 +70,5 @@ class Config:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
     @property
-    def has_api_key(self):
+    def has_api_key(self) -> bool:
         return bool(self.api_key.strip())

@@ -1,11 +1,16 @@
 import json
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from typing import Iterator, Optional, Tuple, Union
 
+from .config import Config
 from .i18n import ERROR_API, ERROR_API_KEY, ERROR_NETWORK, ERROR_TIMEOUT, ERROR_UNKNOWN
+
+StreamChunk = Union[str, "StreamEvent"]
 
 MAX_RETRIES = 2
 MAX_TIMEOUT_RETRIES = 1
@@ -18,7 +23,7 @@ class StreamEvent:
     data: object = None
 
 
-def _sanitize_error(error):
+def _sanitize_error(error) -> str:
     msg = str(error)
     msg = re.sub(r"[Aa]uthorization.?\s*[Bb]earer\s+\S+", "[已隐藏]", msg)
     msg = re.sub(r"(api[_-]?key\s*[:=]\s*)\S+", r"\1***", msg, flags=re.IGNORECASE)
@@ -26,7 +31,7 @@ def _sanitize_error(error):
     return msg
 
 
-def _is_timeout_error(error):
+def _is_timeout_error(error) -> bool:
     if isinstance(error, TimeoutError):
         return True
     if isinstance(error, urllib.error.URLError):
@@ -35,7 +40,7 @@ def _is_timeout_error(error):
     return "timed out" in str(error).lower()
 
 
-def _classify_error(error):
+def _classify_error(error) -> Tuple[str, bool]:
     if isinstance(error, urllib.error.HTTPError):
         code = error.code
         if code == 401 or code == 403:
@@ -51,15 +56,15 @@ def _classify_error(error):
 
 
 def _build_payload(
-    system_prompt,
-    user_text,
-    config,
-    messages=None,
-    model=None,
-    thinking_enabled=False,
-    stream=False,
-    include_usage=False,
-):
+    system_prompt: Optional[str],
+    user_text: Optional[str],
+    config: Config,
+    messages: Optional[list[dict]] = None,
+    model: Optional[str] = None,
+    thinking_enabled: bool = False,
+    stream: bool = False,
+    include_usage: bool = False,
+) -> dict:
     if messages is not None:
         payload_messages = messages
     else:
@@ -82,7 +87,7 @@ def _build_payload(
     return payload
 
 
-def _build_request(payload, config):
+def _build_request(payload: dict, config: Config) -> urllib.request.Request:
     data = json.dumps(payload).encode("utf-8")
     return urllib.request.Request(
         config.api_url,
@@ -94,7 +99,7 @@ def _build_request(payload, config):
     )
 
 
-def _stream_delta(line):
+def _stream_delta(line: str) -> Tuple[Optional[str], Optional[str], Optional[dict], bool]:
     if not line.startswith("data:"):
         return None, None, None, False
 
@@ -129,14 +134,14 @@ def _stream_delta(line):
 
 
 def call_api(
-    system_prompt,
-    user_text,
-    config,
-    messages=None,
-    model=None,
-    thinking_enabled=False,
-    timeout=None,
-):
+    system_prompt: Optional[str],
+    user_text: Optional[str],
+    config: Config,
+    messages: Optional[list[dict]] = None,
+    model: Optional[str] = None,
+    thinking_enabled: bool = False,
+    timeout: Optional[int] = None,
+) -> str:
     req = _build_request(
         _build_payload(system_prompt, user_text, config, messages, model, thinking_enabled),
         config,
@@ -161,15 +166,15 @@ def call_api(
 
 
 def stream_api(
-    system_prompt,
-    user_text,
-    config,
-    messages=None,
-    model=None,
-    thinking_enabled=False,
-    timeout=None,
-    cancel_event=None,
-):
+    system_prompt: Optional[str],
+    user_text: Optional[str],
+    config: Config,
+    messages: Optional[list[dict]] = None,
+    model: Optional[str] = None,
+    thinking_enabled: bool = False,
+    timeout: Optional[int] = None,
+    cancel_event: Optional[threading.Event] = None,
+) -> Iterator[StreamChunk]:
     payload = _build_payload(
         system_prompt,
         user_text,

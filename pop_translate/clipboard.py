@@ -2,8 +2,11 @@ import glob
 import json
 import os
 import subprocess
-import sys
 import stat
+
+from .log import get_logger
+
+logger = get_logger(__name__)
 
 
 def _is_wayland():
@@ -24,7 +27,7 @@ def _read_wl_paste():
     except FileNotFoundError:
         pass
     except Exception as e:
-        print(f"clipboard read error (wl-paste --primary): {e}", file=sys.stderr)
+        logger.warning("clipboard read error (wl-paste --primary): %s", e)
     return ""
 
 
@@ -42,7 +45,7 @@ def _read_wl_clipboard():
     except FileNotFoundError:
         pass
     except Exception as e:
-        print(f"clipboard read error (wl-paste): {e}", file=sys.stderr)
+        logger.warning("clipboard read error (wl-paste): %s", e)
     return ""
 
 
@@ -59,7 +62,7 @@ def _read_xclip():
     except FileNotFoundError:
         pass
     except Exception as e:
-        print(f"clipboard read error (xclip primary): {e}", file=sys.stderr)
+        logger.warning("clipboard read error (xclip primary): %s", e)
     return ""
 
 
@@ -76,7 +79,7 @@ def _read_xclip_clipboard():
     except FileNotFoundError:
         pass
     except Exception as e:
-        print(f"clipboard read error (xclip clipboard): {e}", file=sys.stderr)
+        logger.warning("clipboard read error (xclip clipboard): %s", e)
     return ""
 
 
@@ -204,7 +207,7 @@ def copy_text(text):
         except FileNotFoundError:
             pass
         except Exception as e:
-            print(f"clipboard copy error (wl-copy): {e}", file=sys.stderr)
+            logger.warning("clipboard copy error (wl-copy): %s", e)
 
     try:
         subprocess.run(
@@ -217,6 +220,6 @@ def copy_text(text):
     except FileNotFoundError:
         pass
     except Exception as e:
-        print(f"clipboard copy error (xclip): {e}", file=sys.stderr)
+        logger.warning("clipboard copy error (xclip): %s", e)
 
     return False

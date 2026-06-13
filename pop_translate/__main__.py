@@ -12,10 +12,13 @@ from gi.repository import Gtk, Gio
 from .config import Config
 from .clipboard import get_selection, copy_text, simulate_copy
 from .history import HistoryDB
+from .log import get_logger, setup_logging
 from .translate import should_translate, is_code_or_error
 from .i18n import OCR_LOADING
 from .ui.window import TranslateWindow
 from .ui.setup_dialog import SetupDialog
+
+logger = get_logger(__name__)
 
 
 _EASYOCR_READER = None
@@ -119,14 +122,14 @@ def capture_screenshot(tmp_img=None):
             break
 
     if cmd is None:
-        print("未找到截图工具，请安装并启动 Snipaste，或安装 spectacle、gnome-screenshot 或 scrot", file=sys.stderr)
+        logger.error("未找到截图工具，请安装并启动 Snipaste，或安装 spectacle、gnome-screenshot 或 scrot")
         _cleanup_file(tmp_img)
         return False
 
     try:
         proc = subprocess.Popen(cmd)
     except Exception as e:
-        print(f"截图失败: {e}", file=sys.stderr)
+        logger.exception("截图失败")
         _cleanup_file(tmp_img)
         return False
 
@@ -180,7 +183,7 @@ def ocr_image(tmp_img=None):
         # EasyOCR not installed, fallback silently to Tesseract
         pass
     except Exception as e:
-        print(f"EasyOCR 识别出错 (将使用 Tesseract 备用): {e}", file=sys.stderr)
+        logger.warning("EasyOCR 识别出错 (将使用 Tesseract 备用): %s", e)
 
     # 3. Run local OCR using tesseract (CPU only, fallback)
     try:
@@ -196,7 +199,7 @@ def ocr_image(tmp_img=None):
             ], capture_output=True, text=True, check=True)
             text = res.stdout.strip()
         except Exception as e:
-            print(f"OCR 识别失败: {e}", file=sys.stderr)
+            logger.error("OCR 识别失败: %s", e)
             text = ""
             
     # Clean up tmp image
@@ -262,6 +265,7 @@ def run_popup(text, config, default_tab, ocr_bootstrapping=False):
 
 
 def main(argv=None):
+    setup_logging()
     args = parse_args(argv)
     config = Config()
     config.load()

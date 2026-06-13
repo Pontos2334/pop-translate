@@ -3,6 +3,7 @@ import os
 import sqlite3
 import threading
 import time
+from typing import Optional
 
 from .config import CONFIG_DIR
 
@@ -40,7 +41,7 @@ class HistoryDB:
         self.conn.executescript(_INDEXES)
         self.conn.commit()
 
-    def lookup(self, source_text, model="", prompt_version="legacy"):
+    def lookup(self, source_text: str, model: str = "", prompt_version: str = "legacy") -> Optional[str]:
         cache_key = self._cache_key(source_text, model, prompt_version)
         with self.lock:
             self._cleanup()
@@ -58,7 +59,13 @@ class HistoryDB:
             self.conn.commit()
             return row[1]
 
-    def save(self, source_text, translation, model="", prompt_version="legacy"):
+    def save(
+        self,
+        source_text: str,
+        translation: str,
+        model: str = "",
+        prompt_version: str = "legacy",
+    ) -> None:
         cache_key = self._cache_key(source_text, model, prompt_version)
         with self.lock:
             cur = self.conn.execute(
@@ -84,16 +91,16 @@ class HistoryDB:
             self.conn.commit()
             self._cleanup()
 
-    def _cleanup(self):
+    def _cleanup(self) -> None:
         cutoff = time.time() - CLEANUP_THRESHOLD
         self.conn.execute("DELETE FROM history WHERE last_used < ?", (cutoff,))
         self.conn.commit()
 
-    def close(self):
+    def close(self) -> None:
         with self.lock:
             self.conn.close()
 
-    def _ensure_columns(self):
+    def _ensure_columns(self) -> None:
         columns = {
             row[1] for row in self.conn.execute("PRAGMA table_info(history)").fetchall()
         }
@@ -106,6 +113,6 @@ class HistoryDB:
             if column not in columns:
                 self.conn.execute(sql)
 
-    def _cache_key(self, source_text, model, prompt_version):
+    def _cache_key(self, source_text: str, model: str, prompt_version: str) -> str:
         raw = "\0".join((prompt_version or "legacy", model or "", source_text or ""))
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()

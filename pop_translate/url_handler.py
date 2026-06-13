@@ -2,6 +2,9 @@ import sys
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .__main__ import main as translate_main
+from .log import get_logger
+
+logger = get_logger(__name__)
 
 
 VALID_TABS = {"translate", "explain", "chat", "auto"}
@@ -39,7 +42,7 @@ def main(argv=None):
     try:
         tab, text = parse_pop_translate_url(argv[0])
     except ValueError as e:
-        print(f"pop-translate-url: {e}", file=sys.stderr)
+        logger.error("pop-translate-url: %s", e)
         return 2
 
     if not text:

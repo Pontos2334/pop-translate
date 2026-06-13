@@ -1,5 +1,12 @@
 import re
+import threading
+from typing import Iterator, Optional, Union
+
 from .api import StreamEvent, call_api, stream_api
+from .config import Config
+from .history import HistoryDB
+
+StreamChunk = Union[str, StreamEvent]
 
 TRANSLATE_PROMPT_VERSION = "translate:v2"
 EXPLAIN_PROMPT_VERSION = "explain:v2"
@@ -8,17 +15,17 @@ CODE_EXPLAIN_PROMPT_VERSION = "code-explain:v2"
 CODE_EXPLAIN_DETAILED_PROMPT_VERSION = "code-explain-detailed:v2"
 
 
-def _has_chinese(text):
+def _has_chinese(text: str) -> bool:
     return any("\u4e00" <= c <= "\u9fff" for c in text)
 
 
-def _english_ratio(text):
+def _english_ratio(text: str) -> float:
     ascii_letters = sum(1 for c in text if c.isascii() and c.isalpha())
     total = sum(1 for c in text if c.isalpha())
     return ascii_letters / total if total > 0 else 0
 
 
-def should_translate(text):
+def should_translate(text: str) -> bool:
     return _english_ratio(text) > 0.5
 
 
@@ -56,7 +63,7 @@ _CODE_PATTERNS = [
 ]
 
 
-def is_code_or_error(text):
+def is_code_or_error(text: str) -> bool:
     if not text:
         return False
     for pattern in _CODE_PATTERNS:
@@ -84,7 +91,7 @@ def is_code_or_error(text):
     return False
 
 
-def _translate_prompt(text):
+def _translate_prompt(text: str) -> str:
     target_lang = "英文" if _has_chinese(text) else "中文"
     return (
         f"你是一名专业翻译。请将用户提供的文本翻译成{target_lang}。"
@@ -115,14 +122,17 @@ _CHAT_SYSTEM_PROMPT = (
 )
 
 
-def _is_error(result):
+def _is_error(result: str) -> bool:
     prefixes = ("API", "网络", "翻译超时", "API Key", "发生未知错误")
     return any(result.startswith(p) for p in prefixes)
 
 
 def _request_timeout(
-    config, thinking_enabled=False, detailed=False, chat_request=False
-):
+    config: Config,
+    thinking_enabled: bool = False,
+    detailed: bool = False,
+    chat_request: bool = False,
+) -> int:
     timeout = config.timeout
     if chat_request:
         return max(timeout, 240 if thinking_enabled else 90)
@@ -132,8 +142,13 @@ def _request_timeout(
 
 
 def translate(
-    text, config, history_db, model=None, thinking_enabled=False, use_cache=True
-):
+    text: str,
+    config: Config,
+    history_db: HistoryDB,
+    model: Optional[str] = None,
+    thinking_enabled: bool = False,
+    use_cache: bool = True,
+) -> str:
     cache_model = model or config.model
     if use_cache and not thinking_enabled:
         cached = history_db.lookup(
@@ -157,14 +172,14 @@ def translate(
 
 
 def translate_stream(
-    text,
-    config,
-    history_db,
-    model=None,
-    thinking_enabled=False,
-    use_cache=True,
-    cancel_event=None,
-):
+    text: str,
+    config: Config,
+    history_db: HistoryDB,
+    model: Optional[str] = None,
+    thinking_enabled: bool = False,
+    use_cache: bool = True,
+    cancel_event: Optional[threading.Event] = None,
+) -> Iterator[StreamChunk]:
     cache_model = model or config.model
     if cancel_event is not None and cancel_event.is_set():
         return
@@ -227,7 +242,7 @@ _CODE_EXPLAIN_DETAILED_PROMPT = (
 )
 
 
-def _explain_prompt_and_version(text, detailed=False):
+def _explain_prompt_and_version(text: str, detailed: bool = False) -> tuple[str, str]:
     is_code = is_code_or_error(text)
     if is_code:
         prompt = _CODE_EXPLAIN_DETAILED_PROMPT if detailed else _CODE_EXPLAIN_PROMPT
@@ -245,14 +260,14 @@ def _explain_prompt_and_version(text, detailed=False):
 
 
 def explain(
-    text,
-    config,
-    history_db=None,
-    model=None,
-    thinking_enabled=False,
-    detailed=False,
-    use_cache=True,
-):
+    text: str,
+    config: Config,
+    history_db: Optional[HistoryDB] = None,
+    model: Optional[str] = None,
+    thinking_enabled: bool = False,
+    detailed: bool = False,
+    use_cache: bool = True,
+) -> str:
     cache_model = model or config.model
     prompt, prompt_version = _explain_prompt_and_version(text, detailed=detailed)
     if history_db is not None and use_cache and not thinking_enabled:
@@ -274,15 +289,15 @@ def explain(
 
 
 def explain_stream(
-    text,
-    config,
-    history_db=None,
-    model=None,
-    thinking_enabled=False,
-    detailed=False,
-    use_cache=True,
-    cancel_event=None,
-):
+    text: str,
+    config: Config,
+    history_db: Optional[HistoryDB] = None,
+    model: Optional[str] = None,
+    thinking_enabled: bool = False,
+    detailed: bool = False,
+    use_cache: bool = True,
+    cancel_event: Optional[threading.Event] = None,
+) -> Iterator[StreamChunk]:
     cache_model = model or config.model
     if cancel_event is not None and cancel_event.is_set():
         return
@@ -335,8 +350,13 @@ def explain_stream(
 
 
 def _chat_messages(
-    text, translated, explanation, chat_messages, user_input, include_context=True
-):
+    text: str,
+    translated: str,
+    explanation: str,
+    chat_messages: list[dict],
+    user_input: str,
+    include_context: bool = True,
+) -> list[dict]:
     messages = [{"role": "system", "content": _CHAT_SYSTEM_PROMPT}]
     if include_context:
         context_parts = [f"原文：{text}"]
@@ -360,16 +380,16 @@ def _chat_messages(
 
 
 def chat(
-    text,
-    translated,
-    explanation,
-    chat_messages,
-    user_input,
-    config,
-    model=None,
-    thinking_enabled=False,
-    include_context=True,
-):
+    text: str,
+    translated: str,
+    explanation: str,
+    chat_messages: list[dict],
+    user_input: str,
+    config: Config,
+    model: Optional[str] = None,
+    thinking_enabled: bool = False,
+    include_context: bool = True,
+) -> str:
     return call_api(
         None,
         None,
@@ -386,17 +406,17 @@ def chat(
 
 
 def chat_stream(
-    text,
-    translated,
-    explanation,
-    chat_messages,
-    user_input,
-    config,
-    model=None,
-    thinking_enabled=False,
-    include_context=True,
-    cancel_event=None,
-):
+    text: str,
+    translated: str,
+    explanation: str,
+    chat_messages: list[dict],
+    user_input: str,
+    config: Config,
+    model: Optional[str] = None,
+    thinking_enabled: bool = False,
+    include_context: bool = True,
+    cancel_event: Optional[threading.Event] = None,
+) -> Iterator[StreamChunk]:
     if cancel_event is not None and cancel_event.is_set():
         return
     yield from stream_api(

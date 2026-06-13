@@ -26,7 +26,10 @@ from ..i18n import (
 from ..api import StreamEvent
 from ..translate import translate_stream, explain_stream, chat_stream, is_code_or_error
 from ..clipboard import copy_text
+from ..log import get_logger
 from .chat_panel import ChatPanel
+
+logger = get_logger(__name__)
 
 BUILTIN_MODELS = ("deepseek-v4-flash", "deepseek-v4-pro")
 WINDOW_WIDTH = 640
@@ -300,7 +303,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
         was_pinned = self._pinned
         if not self._apply_kwin_keep_above(pinned):
-            print("Pop Translate: KDE Wayland 置顶设置失败", file=sys.stderr)
+            logger.warning("Pop Translate: KDE Wayland 置顶设置失败")
             self._pinned = was_pinned
             self._refresh_pin_button()
             if self._pinned:
@@ -345,7 +348,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
             self._call_kwin_script_method("unloadScript", plugin_name, check=False)
             return True
         except (OSError, subprocess.SubprocessError) as e:
-            print(f"Pop Translate: KWin D-Bus 调用失败: {e}", file=sys.stderr)
+            logger.warning("Pop Translate: KWin D-Bus 调用失败: %s", e)
             return False
         finally:
             if "script_path" in locals():
