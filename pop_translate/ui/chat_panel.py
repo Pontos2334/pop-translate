@@ -81,6 +81,7 @@ class ChatPanel(Gtk.Box):
 
         self._text_min_heights = {}
         self._text_widths = {}
+        self._text_min_widths = {}
 
         self._on_request_cb = None
         self._on_resize_cb = None
@@ -310,8 +311,8 @@ class ChatPanel(Gtk.Box):
         self._scroll.set_has_frame(False)
         self._scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self._scroll.set_propagate_natural_height(True)
-        self._scroll.set_min_content_height(60)
-        self._scroll.set_max_content_height(400)
+        self._scroll.set_min_content_height(200)
+        self._scroll.set_max_content_height(480)
         self._scroll.set_hexpand(True)
 
         self._chat_list = Gtk.Box(
@@ -329,7 +330,7 @@ class ChatPanel(Gtk.Box):
 
         scrolled_input = Gtk.ScrolledWindow()
         scrolled_input.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled_input.set_min_content_height(36)
+        scrolled_input.set_min_content_height(44)
         scrolled_input.set_max_content_height(100)
         scrolled_input.set_propagate_natural_height(True)
         scrolled_input.set_hexpand(True)
@@ -780,17 +781,20 @@ class ChatPanel(Gtk.Box):
         if view is None or view.get_parent() is None:
             return False
         width = self._text_widths.get(view, -1)
-        if view.get_allocated_width() <= 1:
+        alloc_w = view.get_allocated_width()
+        if alloc_w <= 1:
             if width > 0:
                 view.set_size_request(width, -1)
             if request_resize:
                 GLib.timeout_add(20, self._refresh_text_view_height, view)
             return False
         min_height = self._text_min_heights.get(view, 24)
-        buf = view.get_buffer()
-        end = buf.get_end_iter()
-        rect = view.get_iter_location(end)
-        height = max(min_height, rect.y + rect.height + 6)
+        # 用 TextView 在目标宽度下的自然高度(已含 CSS padding / 行距),
+        # 直接作为 size_request,避免 iter_location 与实际渲染高度不一致
+        # 而把气泡撑出多余空白。
+        for_w = alloc_w if alloc_w > 1 else width
+        _, natural_h, _, _ = view.measure(Gtk.Orientation.VERTICAL, for_w)
+        height = max(min_height, natural_h)
         view.set_size_request(width, height)
         if request_resize:
             self.request_resize()

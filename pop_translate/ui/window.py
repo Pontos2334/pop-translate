@@ -1003,7 +1003,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         scrolled.set_has_frame(False)
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_propagate_natural_height(True)
-        scrolled.set_min_content_height(40)
+        scrolled.set_min_content_height(360)
         self._max_content_height = self._content_height_limit()
         scrolled.set_max_content_height(self._max_content_height)
         scrolled.set_child(child)
