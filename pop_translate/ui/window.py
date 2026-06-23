@@ -835,6 +835,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
             box.append(self._translate_loading_label)
 
         self._translate_result_view = self._readonly_text_view(self.translated, ["result"], min_height=28)
+        self._translate_result_view.set_vexpand(True)
         box.append(self._translate_result_view)
 
         btn_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -914,6 +915,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
             box.append(self._explain_loading_label)
 
         self._explain_result_view = self._readonly_text_view(self.explanation, ["explain-body"], min_height=28, markdown=True)
+        self._explain_result_view.set_vexpand(True)
         box.append(self._explain_result_view)
 
         controls, self._explain_speed_label = self._build_model_controls(
