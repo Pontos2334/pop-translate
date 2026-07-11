@@ -10,7 +10,7 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Gtk, Gio
 
 from .config import Config
-from .clipboard import get_selection, copy_text, simulate_copy
+from .clipboard import get_selection, copy_text, simulate_copy, _is_wayland
 from .history import HistoryDB
 from .log import get_logger, setup_logging
 from .translate import should_translate, is_code_or_error
@@ -48,6 +48,22 @@ def _command_exists(command):
     if os.path.isabs(command):
         return os.path.exists(command) and os.access(command, os.X_OK)
     return shutil.which(command) is not None
+
+
+def _capture_with_grim_slurp(tmp_img):
+    """grim + slurp 区域截图（Wayland/wlroots）。返回 True 成功 / False 取消或失败。"""
+    try:
+        slurp = subprocess.run(["slurp"], capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        return False
+    geometry = slurp.stdout.strip()
+    if slurp.returncode != 0 or not geometry:
+        return False  # 用户按 Esc 取消
+    try:
+        res = subprocess.run(["grim", "-g", geometry, tmp_img], capture_output=True, timeout=10)
+    except subprocess.TimeoutExpired:
+        return False
+    return res.returncode == 0 and os.path.exists(tmp_img) and os.path.getsize(tmp_img) > 0
 
 
 def _snipaste_executable():
@@ -102,6 +118,13 @@ def capture_screenshot(tmp_img=None):
     if os.path.exists(tmp_img):
         _cleanup_file(tmp_img)
 
+    # Wayland (wlroots 合成器：niri / Hyprland / Sway)：grim + slurp
+    if _is_wayland() and _command_exists("grim") and _command_exists("slurp"):
+        if _capture_with_grim_slurp(tmp_img):
+            return True
+        _cleanup_file(tmp_img)
+        return False
+
     screenshot_tools = []
     snipaste = _snipaste_executable()
     if snipaste and _ensure_snipaste_running(snipaste):
@@ -122,7 +145,7 @@ def capture_screenshot(tmp_img=None):
             break
 
     if cmd is None:
-        logger.error("未找到截图工具，请安装并启动 Snipaste，或安装 spectacle、gnome-screenshot 或 scrot")
+        logger.error("未找到截图工具。Wayland 请安装 grim 和 slurp；X11 请安装并启动 Snipaste，或安装 spectacle、gnome-screenshot 或 scrot")
         _cleanup_file(tmp_img)
         return False
 
