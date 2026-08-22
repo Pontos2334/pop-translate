@@ -358,23 +358,27 @@ def _chat_messages(
     chat_messages: list[dict],
     user_input: str,
     include_context: bool = True,
+    vision_result: str = "",
 ) -> list[dict]:
     messages = [{"role": "system", "content": _CHAT_SYSTEM_PROMPT}]
     if include_context:
-        context_parts = [f"原文：{text}"]
+        context_parts = [f"原文：{text}"] if text else []
         if translated:
             context_parts.append(f"译文：{translated}")
         if explanation:
             context_parts.append(f"解释：{explanation}")
-        messages.append(
-            {"role": "user", "content": "上下文信息如下：\n" + "\n".join(context_parts)}
-        )
-        messages.append(
-            {
-                "role": "assistant",
-                "content": "好的，我已了解这段文字的上下文，请问你有什么问题？",
-            }
-        )
+        if vision_result:
+            context_parts.append(f"识图结果：{vision_result}")
+        if context_parts:
+            messages.append(
+                {"role": "user", "content": "上下文信息如下：\n" + "\n".join(context_parts)}
+            )
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": "好的，我已了解这段文字的上下文，请问你有什么问题？",
+                }
+            )
     for msg in chat_messages:
         messages.append(msg)
     messages.append({"role": "user", "content": user_input})
@@ -391,13 +395,14 @@ def chat(
     model: Optional[str] = None,
     thinking_enabled: bool = False,
     include_context: bool = True,
+    vision_result: str = "",
 ) -> str:
     return call_api(
         None,
         None,
         config,
         messages=_chat_messages(
-            text, translated, explanation, chat_messages, user_input, include_context
+            text, translated, explanation, chat_messages, user_input, include_context, vision_result
         ),
         model=model,
         thinking_enabled=thinking_enabled,
@@ -417,6 +422,7 @@ def chat_stream(
     model: Optional[str] = None,
     thinking_enabled: bool = False,
     include_context: bool = True,
+    vision_result: str = "",
     cancel_event: Optional[threading.Event] = None,
 ) -> Iterator[StreamChunk]:
     if cancel_event is not None and cancel_event.is_set():
@@ -426,7 +432,7 @@ def chat_stream(
         None,
         config,
         messages=_chat_messages(
-            text, translated, explanation, chat_messages, user_input, include_context
+            text, translated, explanation, chat_messages, user_input, include_context, vision_result
         ),
         model=model,
         thinking_enabled=thinking_enabled,

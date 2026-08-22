@@ -14,19 +14,17 @@ from .clipboard import get_selection, copy_text, simulate_copy, _is_wayland
 from .history import HistoryDB
 from .log import get_logger, setup_logging
 from .translate import should_translate, is_code_or_error
-from .i18n import OCR_LOADING
 from .ui.window import TranslateWindow
 from .ui.setup_dialog import SetupDialog
 
 logger = get_logger(__name__)
 
 
-_EASYOCR_READER = None
-_LAST_OCR_IMAGE = None
+_LAST_CAPTURED_IMAGE = None
 
 
-def _new_ocr_image_path():
-    fd, path = tempfile.mkstemp(prefix="pop_translate_ocr_", suffix=".png")
+def _new_capture_image_path():
+    fd, path = tempfile.mkstemp(prefix="pop_translate_capture_", suffix=".png")
     os.close(fd)
     try:
         os.remove(path)
@@ -111,10 +109,10 @@ def _ensure_snipaste_running(executable):
 
 
 def capture_screenshot(tmp_img=None):
-    global _LAST_OCR_IMAGE
+    global _LAST_CAPTURED_IMAGE
     import time
-    tmp_img = tmp_img or _new_ocr_image_path()
-    _LAST_OCR_IMAGE = tmp_img
+    tmp_img = tmp_img or _new_capture_image_path()
+    _LAST_CAPTURED_IMAGE = tmp_img
     if os.path.exists(tmp_img):
         _cleanup_file(tmp_img)
 
@@ -184,61 +182,12 @@ def capture_screenshot(tmp_img=None):
     return False
 
 
-def ocr_image(tmp_img=None):
-    global _EASYOCR_READER
-    tmp_img = tmp_img or _LAST_OCR_IMAGE
-    if not tmp_img or not os.path.exists(tmp_img):
-        return ""
-        
-    # 2. Try EasyOCR first (GPU/CPU accelerated, highly accurate)
-    try:
-        import easyocr
-        if _EASYOCR_READER is None:
-            # Initializes EasyOCR and automatically handles GPU (CUDA/ROCm) vs CPU detection
-            _EASYOCR_READER = easyocr.Reader(['ch_sim', 'en'], verbose=False)
-        result = _EASYOCR_READER.readtext(tmp_img, detail=0, paragraph=True)
-        text = "\n".join(result).strip()
-        
-        # Clean up tmp image
-        _cleanup_file(tmp_img)
-        return text
-    except ImportError:
-        # EasyOCR not installed, fallback silently to Tesseract
-        pass
-    except Exception as e:
-        logger.warning("EasyOCR 识别出错 (将使用 Tesseract 备用): %s", e)
-
-    # 3. Run local OCR using tesseract (CPU only, fallback)
-    try:
-        res = subprocess.run([
-            "tesseract", tmp_img, "stdout", "-l", "eng+chi_sim"
-        ], capture_output=True, text=True, check=True)
-        text = res.stdout.strip()
-    except Exception:
-        try:
-            # Fallback to default local language data
-            res = subprocess.run([
-                "tesseract", tmp_img, "stdout"
-            ], capture_output=True, text=True, check=True)
-            text = res.stdout.strip()
-        except Exception as e:
-            logger.error("OCR 识别失败: %s", e)
-            text = ""
-            
-    # Clean up tmp image
-    _cleanup_file(tmp_img)
-        
-    return text
-
-
-def perform_local_ocr():
-    if capture_screenshot():
-        return ocr_image()
-    return ""
+def last_captured_image():
+    return _LAST_CAPTURED_IMAGE
 
 
 class TranslateApp(Gtk.Application):
-    def __init__(self, text, config, history_db, default_tab, ocr_bootstrapping=False):
+    def __init__(self, text, config, history_db, default_tab, vision_bootstrapping=False):
         super().__init__(
             application_id="com.translate.popup",
             flags=Gio.ApplicationFlags.NON_UNIQUE,
@@ -247,10 +196,17 @@ class TranslateApp(Gtk.Application):
         self.config = config
         self.history_db = history_db
         self.default_tab = default_tab
-        self.ocr_bootstrapping = ocr_bootstrapping
+        self.vision_bootstrapping = vision_bootstrapping
 
     def do_activate(self):
-        self.win = TranslateWindow(self, self.text, self.config, self.history_db, self.default_tab, self.ocr_bootstrapping)
+        self.win = TranslateWindow(
+            self,
+            self.text,
+            self.config,
+            self.history_db,
+            self.default_tab,
+            self.vision_bootstrapping,
+        )
         self.win.present()
 
 
@@ -260,30 +216,28 @@ def parse_args(argv=None):
         description="Show a Pop Translate popup for selected or supplied text.",
     )
     source = parser.add_mutually_exclusive_group()
-    source.add_argument("-o", "--ocr", action="store_true", help="capture an area and OCR it")
+    source.add_argument("-i", "--vision", action="store_true", help="capture an area and analyze the image with the vision model")
     source.add_argument("--text", help="use this text directly instead of reading the clipboard")
     parser.add_argument(
         "--tab",
-        choices=("auto", "translate", "explain", "chat"),
+        choices=("auto", "translate", "explain", "chat", "vision"),
         default="auto",
         help="default tab to open when text is supplied",
     )
     return parser.parse_args(argv)
 
 
-def resolve_default_tab(text, requested_tab="auto", ocr_bootstrapping=False):
+def resolve_default_tab(text, requested_tab="auto"):
     if requested_tab != "auto":
         return requested_tab
-    if ocr_bootstrapping:
-        return "translate"
     if is_code_or_error(text):
         return "explain"
     return "translate" if should_translate(text) else "explain"
 
 
-def run_popup(text, config, default_tab, ocr_bootstrapping=False):
+def run_popup(text, config, default_tab, vision_bootstrapping=False):
     history_db = HistoryDB()
-    app = TranslateApp(text, config, history_db, default_tab, ocr_bootstrapping)
+    app = TranslateApp(text, config, history_db, default_tab, vision_bootstrapping)
     return app.run(None)
 
 
@@ -309,13 +263,12 @@ def main(argv=None):
         sys.exit(0)
 
     text = ""
-    ocr_bootstrapping = False
+    vision_bootstrapping = False
     should_copy_original = False
-    if args.ocr:
+    if args.vision:
         if not capture_screenshot():
             sys.exit(0)
-        text = OCR_LOADING
-        ocr_bootstrapping = True
+        vision_bootstrapping = True
     elif args.text is not None:
         text = args.text.strip()
         if not text:
@@ -332,8 +285,11 @@ def main(argv=None):
     if should_copy_original:
         copy_text(text)
 
-    default_tab = resolve_default_tab(text, args.tab, ocr_bootstrapping)
-    sys.exit(run_popup(text, config, default_tab, ocr_bootstrapping))
+    if vision_bootstrapping:
+        default_tab = "vision"
+    else:
+        default_tab = resolve_default_tab(text, args.tab)
+    sys.exit(run_popup(text, config, default_tab, vision_bootstrapping))
 
 
 if __name__ == "__main__":

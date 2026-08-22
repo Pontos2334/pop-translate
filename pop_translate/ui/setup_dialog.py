@@ -6,7 +6,8 @@ from gi.repository import Gtk, Gdk
 from ..css import CSS
 from ..i18n import (
     SETUP_TITLE,
-    SETUP_API_KEY_LABEL, SETUP_API_URL_LABEL, SETUP_MODEL_LABEL, SETUP_TIMEOUT_LABEL,
+    SETUP_API_KEY_LABEL, SETUP_API_URL_LABEL, SETUP_MODEL_LABEL,
+    SETUP_VISION_MODEL_LABEL, SETUP_TIMEOUT_LABEL,
     SETUP_SAVE, SETUP_CANCEL, SETUP_API_KEY_REQUIRED, SETUP_TIMEOUT_INVALID,
 )
 
@@ -17,7 +18,7 @@ class SetupDialog(Gtk.Window):
         self.config = config
         self.on_saved = on_saved
 
-        self.set_default_size(420, 350)
+        self.set_default_size(420, 400)
         self.set_resizable(False)
         self._load_css()
         self._build_ui()
@@ -55,6 +56,7 @@ class SetupDialog(Gtk.Window):
         self.key_entry = self._add_field(content, SETUP_API_KEY_LABEL, "", True)
         self.url_entry = self._add_field(content, SETUP_API_URL_LABEL, self.config.api_url, False)
         self.model_entry = self._add_field(content, SETUP_MODEL_LABEL, self.config.model, False)
+        self.vision_model_entry = self._add_field(content, SETUP_VISION_MODEL_LABEL, self.config.vision_model, False)
         self.timeout_entry = self._add_field(content, SETUP_TIMEOUT_LABEL, str(self.config.timeout), False)
 
         self.error_label = Gtk.Label(label="")
@@ -105,6 +107,7 @@ class SetupDialog(Gtk.Window):
         self.config.api_key = api_key
         self.config.api_url = self.url_entry.get_text().strip() or self.config.api_url
         self.config.model = self.model_entry.get_text().strip() or self.config.model
+        self.config.vision_model = self.vision_model_entry.get_text().strip() or self.config.vision_model
         timeout_text = self.timeout_entry.get_text().strip()
         try:
             timeout = int(timeout_text)

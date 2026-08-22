@@ -8,6 +8,7 @@ DEFAULTS = {
     "api_key": "",
     "api_url": "https://api.deepseek.com/chat/completions",
     "model": "deepseek-v4-flash",
+    "vision_model": "deepseek-v4-flash-vision-exp",
     "timeout": 60,
 }
 
@@ -19,12 +20,14 @@ class Config:
     api_key: str
     api_url: str
     model: str
+    vision_model: str
     timeout: int
 
     def __init__(self):
         self.api_key = DEFAULTS["api_key"]
         self.api_url = DEFAULTS["api_url"]
         self.model = DEFAULTS["model"]
+        self.vision_model = DEFAULTS["vision_model"]
         self.timeout = DEFAULTS["timeout"]
 
     def load(self) -> None:
@@ -40,6 +43,8 @@ class Config:
                     self.model = data["model"]
                     if self.model in DEPRECATED_DEFAULT_MODELS:
                         self.model = DEFAULTS["model"]
+                if data.get("vision_model"):
+                    self.vision_model = data["vision_model"]
                 if data.get("timeout"):
                     timeout = int(data["timeout"])
                     self.timeout = DEFAULTS["timeout"] if timeout == OLD_DEFAULT_TIMEOUT else timeout
@@ -57,6 +62,9 @@ class Config:
         env_model = os.environ.get("POP_TRANSLATE_MODEL", "")
         if env_model:
             self.model = env_model
+        env_vision_model = os.environ.get("POP_TRANSLATE_VISION_MODEL", "")
+        if env_vision_model:
+            self.vision_model = env_vision_model
 
     def save(self) -> None:
         os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -64,6 +72,7 @@ class Config:
             "api_key": self.api_key,
             "api_url": self.api_url,
             "model": self.model,
+            "vision_model": self.vision_model,
             "timeout": self.timeout,
         }
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:

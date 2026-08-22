@@ -15,16 +15,20 @@ from gi.repository import Gtk, Gdk, GLib, Pango
 
 from ..css import CSS
 from ..i18n import (
-    APP_TITLE, TRANSLATING, EXPLAINING, OCR_LOADING,
+    APP_TITLE, TRANSLATING, EXPLAINING,
     BTN_COPY, BTN_COPIED, BTN_COPY_ORIGINAL, BTN_COPIED_ORIG,
     BTN_EDIT, BTN_RETRANSLATE, BTN_REEXPLAIN, BTN_SHORT_EXPLAIN, BTN_DETAILED_EXPLAIN, BTN_CANCEL,
-    BTN_SEARCH, BTN_SCREENSHOT, BTN_PIN, BTN_PINNED, BTN_THINKING,
+    BTN_SEARCH, BTN_PIN, BTN_PINNED, BTN_THINKING,
+    BTN_VISION, BTN_VISION_CAPTURE, BTN_VISION_SHORT, BTN_VISION_DETAILED,
+    VISION_EMPTY_HINT,
+    VISION_FIRST_MESSAGE, VISION_FIRST_MESSAGE_DETAILED,
     SPEED_LABEL,
-    TAB_TRANSLATE, TAB_EXPLAIN, TAB_CHAT,
+    TAB_TRANSLATE, TAB_EXPLAIN, TAB_CHAT, TAB_VISION,
     SHORTCUT_HINT, CHAT_THINKING,
 )
 from ..api import StreamEvent
-from ..translate import translate_stream, explain_stream, chat_stream, is_code_or_error
+from ..translate import translate_stream, explain_stream, chat_stream
+from ..vision import vision_stream, vision_chat_stream
 from ..clipboard import copy_text
 from ..log import get_logger
 from .chat_panel import ChatPanel
@@ -32,6 +36,7 @@ from .chat_panel import ChatPanel
 logger = get_logger(__name__)
 
 BUILTIN_MODELS = ("deepseek-v4-flash", "deepseek-v4-pro")
+BUILTIN_VISION_MODELS = ("deepseek-v4-flash-vision-exp",)
 WINDOW_WIDTH = 640
 STREAM_MARKDOWN_REFRESH_DELAY_MS = 200
 BARE_DOMAIN_RE = re.compile(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}([/?#].*)?$")
@@ -41,7 +46,7 @@ KWIN_SCRIPTING_IFACE = "org.kde.kwin.Scripting"
 
 
 class TranslateWindow(Gtk.ApplicationWindow):
-    def __init__(self, app, text, config, history_db, default_tab="translate", ocr_bootstrapping=False):
+    def __init__(self, app, text, config, history_db, default_tab="translate", vision_bootstrapping=False):
         super().__init__(application=app)
         self._kwin_window_token = f"pop-translate-pin:{os.getpid()}:{id(self)}"
         self.set_title(self._kwin_window_token)
@@ -49,13 +54,18 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self.text = text
         self.translated = ""
         self.explanation = ""
+        self.vision_result = ""
         self.config = config
         self.history_db = history_db
-        self._loading_label = None
         self._translate_loading_label = None
         self._translate_speed_label = None
         self._explain_loading_label = None
         self._explain_speed_label = None
+        self._vision_image_path = None
+        self._vision_loading = False
+        self._vision_cancel_event = None
+        self._vision_detailed = False
+        self._vision_chat_panel = None
         self._translate_result_view = None
         self._translate_copy_btn = None
         self._explain_result_view = None
@@ -84,12 +94,21 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._translate_thinking = False
         self._explain_thinking = False
         self._explain_detailed = False
+        self._vision_context_suppressed = False
         self._chat_panel = None
         self._autoclose_timeout_id = None
         self._pinned = False
         self.pin_btn = None
-        self._ocr_bootstrapping = ocr_bootstrapping
         self._model_choices = self._build_model_choices()
+        self._vision_model_choices = self._build_vision_model_choices()
+        if vision_bootstrapping:
+            try:
+                from ..__main__ import last_captured_image
+                captured = last_captured_image()
+                if captured and os.path.exists(captured):
+                    self._vision_image_path = captured
+            except Exception:
+                logger.exception("Pop Translate: 获取预截取图片失败")
 
         self.set_decorated(False)
         self.set_resizable(True)
@@ -135,6 +154,10 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._cancel_pending_markdown_refreshes()
         if self._chat_panel is not None:
             self._chat_panel.cancel()
+        if self._vision_chat_panel is not None:
+            self._vision_chat_panel.cancel_pending_refreshes()
+            self._vision_chat_panel.cancel()
+        self._remove_vision_image()
         self.get_application().quit()
         return False
 
@@ -159,9 +182,18 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self._explain_request_thinking = False
         self._reset_speed_stats("explain")
 
+    def _cancel_vision_request(self):
+        if self._vision_cancel_event is not None:
+            self._vision_cancel_event.set()
+        self._vision_cancel_event = None
+        self._vision_loading = False
+        if self._vision_chat_panel is not None:
+            self._vision_chat_panel.cancel()
+
     def _cancel_active_requests(self):
         self._cancel_translation_request()
         self._cancel_explain_request()
+        self._cancel_vision_request()
         if self._chat_panel is not None:
             self._chat_panel.cancel()
 
@@ -193,15 +225,6 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
     def _on_realize(self, widget):
         GLib.idle_add(self._focus_window)
-        if hasattr(self, "_ocr_bootstrapping") and self._ocr_bootstrapping:
-            self._start_ocr_bootstrap_worker()
-
-    def _start_ocr_bootstrap_worker(self):
-        def worker():
-            from ..__main__ import ocr_image
-            text = ocr_image()
-            GLib.idle_add(self._on_screenshot_done, text)
-        threading.Thread(target=worker, daemon=True).start()
 
     def _focus_window(self):
         self.present()
@@ -259,10 +282,10 @@ class TranslateWindow(Gtk.ApplicationWindow):
         search_btn.connect("clicked", self._on_search)
         title_bar.append(search_btn)
 
-        ocr_btn = Gtk.Button(label=BTN_SCREENSHOT)
-        ocr_btn.set_css_classes(["title-btn"])
-        ocr_btn.connect("clicked", self._on_screenshot_ocr)
-        title_bar.append(ocr_btn)
+        vision_btn = Gtk.Button(label=BTN_VISION)
+        vision_btn.set_css_classes(["title-btn"])
+        vision_btn.connect("clicked", self._on_vision_capture)
+        title_bar.append(vision_btn)
 
         self.copy_orig_btn = Gtk.Button(label=BTN_COPY_ORIGINAL)
         self.copy_orig_btn.set_css_classes(["title-btn"])
@@ -423,74 +446,162 @@ class TranslateWindow(Gtk.ApplicationWindow):
             break;
         }}
     }}
-}})();
-"""
+    }})();
+    """
 
-    def _on_screenshot_ocr(self, button):
+    def _on_vision_capture(self, button):
         self.hide()
         # Defer screen capture slightly to ensure window has vanished from screen
-        GLib.timeout_add(250, self._start_screenshot_worker)
+        GLib.timeout_add(250, self._start_vision_capture_worker)
 
-    def _start_screenshot_worker(self):
+    def _start_vision_capture_worker(self):
         def worker():
-            from ..__main__ import capture_screenshot, ocr_image
+            from ..__main__ import capture_screenshot, last_captured_image
             success = capture_screenshot()
             if success:
-                GLib.idle_add(self._on_screenshot_captured)
-                text = ocr_image()
-                GLib.idle_add(self._on_screenshot_done, text)
+                GLib.idle_add(self._on_vision_captured, last_captured_image())
             else:
                 GLib.idle_add(self.show)
         threading.Thread(target=worker, daemon=True).start()
         return False
 
-    def _on_screenshot_captured(self):
-        self._ocr_bootstrapping = True
+    def _on_vision_captured(self, image_path):
         self._reset_autoclose_timer()
+        if image_path and image_path != self._vision_image_path and os.path.exists(image_path):
+            self._remove_vision_image()
+            self._vision_image_path = image_path
+        self._cancel_vision_request()
+        if self._vision_chat_panel is not None:
+            self._vision_chat_panel.reset()
+        self.vision_result = ""
+        self._vision_detailed = False
+        self._vision_context_suppressed = False
+        self._editing = False
         self.show()
-        self._switch_tab(self._current_tab)
+        self._switch_tab("vision")
 
-    def _on_screenshot_done(self, text):
-        self._ocr_bootstrapping = False
-        self._reset_autoclose_timer()
-        self.show()
-        self._cancel_active_requests()
-        if not text:
-            self.original_text = ""
-            self.text = ""
-            self.translated = ""
-            self.explanation = ""
-            self._reset_chat()
-            self._switch_tab("translate")
+    def _remove_vision_image(self):
+        if self._vision_image_path:
+            try:
+                os.remove(self._vision_image_path)
+            except OSError:
+                pass
+        self._vision_image_path = None
+
+    def _regenerate_vision(self, detailed=None):
+        if not self._vision_image_path:
             return
+        if detailed is not None:
+            self._vision_detailed = detailed
+        self._clear_content()
+        self._start_vision_request()
+        self._show_vision_tab()
+        self._resize_to_content()
 
-        self.original_text = text
-        self.text = text
-        self.translated = ""
-        self.explanation = ""
-        self._reset_chat()
-        threading.Thread(target=copy_text, args=(text,), daemon=True).start()
+    def _ensure_vision_chat_panel(self):
+        if self._vision_chat_panel is None:
+            self._vision_chat_panel = ChatPanel(
+                model_choices=self._vision_model_choices,
+                initial_model=self.config.vision_model,
+                initial_thinking=False,
+                show_thinking=False,
+            )
+            self._vision_chat_panel.set_callbacks(
+                on_request=self._handle_vision_chat_request,
+                on_resize=self._request_chat_resize,
+                on_settings_changed=self._handle_vision_chat_settings_changed,
+                on_clear_context=self._handle_vision_chat_clear_context,
+            )
+        return self._vision_chat_panel
 
-        if is_code_or_error(text):
-            self._switch_tab("explain")
-        else:
-            from ..translate import should_translate
-            tab_id = "translate" if should_translate(text) else "explain"
-            self._switch_tab(tab_id)
+    def _start_vision_request(self):
+        image_path = self._vision_image_path
+        if not image_path or not os.path.exists(image_path):
+            return
+        panel = self._ensure_vision_chat_panel()
+        self._cancel_vision_request()
+        panel.reset()
+        first_message = (
+            VISION_FIRST_MESSAGE_DETAILED if self._vision_detailed else VISION_FIRST_MESSAGE
+        )
+        panel.append_user_message(first_message)
+        cancel_event = threading.Event()
+        panel.start_stream(cancel_event)
+        self._vision_loading = True
+        self._vision_cancel_event = cancel_event
+        model = self._api_vision_model(panel.model)
 
-    def _show_ocr_loading_state(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        box.set_css_classes(["content-box"])
-        self._loading_label = Gtk.Label(label=OCR_LOADING)
-        self._loading_label.set_css_classes(["hint"])
-        self._loading_label.set_wrap(True)
-        self._loading_label.set_xalign(0)
-        box.append(self._loading_label)
-        self.content_area.append(self._wrap_scroll(box))
+        def worker():
+            chunks = []
+            for chunk in vision_stream(
+                image_path,
+                self.config,
+                model=model,
+                detailed=self._vision_detailed,
+                cancel_event=cancel_event,
+            ):
+                if cancel_event.is_set():
+                    return
+                if isinstance(chunk, StreamEvent):
+                    GLib.idle_add(panel.handle_event, cancel_event, chunk)
+                    continue
+                chunks.append(chunk)
+                GLib.idle_add(panel.append_chunk, cancel_event, chunk)
+            result = "".join(chunks).strip()
+            GLib.idle_add(panel.finish_stream, cancel_event, result)
+            GLib.idle_add(self._on_vision_analysis_done, cancel_event, result)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_vision_analysis_done(self, cancel_event, result):
+        if self._vision_cancel_event is not cancel_event:
+            return False
+        self._vision_loading = False
+        self._vision_cancel_event = None
+        if not cancel_event.is_set() and result:
+            self.vision_result = result
+        return False
+
+    def _handle_vision_chat_request(self, panel, messages_before, user_text, settings):
+        image_path = self._vision_image_path
+        if not image_path or not os.path.exists(image_path):
+            return
+        cancel_event = threading.Event()
+        panel.start_stream(cancel_event)
+        model = self._api_vision_model(settings.model)
+
+        def worker():
+            chunks = []
+            for chunk in vision_chat_stream(
+                image_path,
+                messages_before,
+                user_text,
+                self.config,
+                model=model,
+                include_context=settings.include_context,
+                cancel_event=cancel_event,
+            ):
+                if cancel_event.is_set():
+                    return
+                if isinstance(chunk, StreamEvent):
+                    GLib.idle_add(panel.handle_event, cancel_event, chunk)
+                    continue
+                chunks.append(chunk)
+                GLib.idle_add(panel.append_chunk, cancel_event, chunk)
+            result = "".join(chunks).strip()
+            GLib.idle_add(panel.finish_stream, cancel_event, result)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _handle_vision_chat_settings_changed(self, panel):
+        pass
+
+    def _handle_vision_chat_clear_context(self, panel):
+        self.vision_result = ""
 
     def _on_copy_original(self, btn):
         text = self.text
-        if not text or text == OCR_LOADING:
+        if not text:
             return
 
         btn.set_label(BTN_COPIED_ORIG)
@@ -512,7 +623,12 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self.tab_bar.set_css_classes(["tab-bar"])
 
         self.tab_btns = {}
-        for tab_id, label in [("translate", TAB_TRANSLATE), ("explain", TAB_EXPLAIN), ("chat", TAB_CHAT)]:
+        for tab_id, label in [
+            ("translate", TAB_TRANSLATE),
+            ("explain", TAB_EXPLAIN),
+            ("chat", TAB_CHAT),
+            ("vision", TAB_VISION),
+        ]:
             btn = Gtk.Button(label=label)
             btn.set_css_classes(["tab-btn"])
             btn.connect("clicked", lambda b, t=tab_id: self._switch_tab(t))
@@ -538,12 +654,15 @@ class TranslateWindow(Gtk.ApplicationWindow):
             self._chat_panel.cancel_pending_refreshes()
             if self._chat_panel.get_parent() is not None:
                 self.content_area.remove(self._chat_panel)
+        if self._vision_chat_panel is not None:
+            self._vision_chat_panel.cancel_pending_refreshes()
+            if self._vision_chat_panel.get_parent() is not None:
+                self._vision_chat_panel.get_parent().remove(self._vision_chat_panel)
         while True:
             child = self.content_area.get_first_child()
             if child is None:
                 break
             self.content_area.remove(child)
-        self._loading_label = None
         self._translate_loading_label = None
         self._translate_speed_label = None
         self._explain_loading_label = None
@@ -566,11 +685,6 @@ class TranslateWindow(Gtk.ApplicationWindow):
 
         self._clear_content()
 
-        if hasattr(self, "_ocr_bootstrapping") and self._ocr_bootstrapping:
-            self._show_ocr_loading_state()
-            self._resize_to_content()
-            return
-
         if tab_id == "translate":
             self._show_translate_tab()
             if not self.translated and not self._editing:
@@ -582,6 +696,18 @@ class TranslateWindow(Gtk.ApplicationWindow):
         elif tab_id == "chat":
             self._show_chat_tab()
             self._chat_panel.grab_input_focus()
+        elif tab_id == "vision":
+            self._show_vision_tab()
+            panel = self._vision_chat_panel
+            if (
+                self._vision_image_path
+                and panel is not None
+                and not panel.messages
+                and not panel.loading
+            ):
+                self._start_vision_request()
+            elif panel is not None:
+                panel.grab_input_focus()
 
         self._resize_to_content()
 
@@ -647,8 +773,18 @@ class TranslateWindow(Gtk.ApplicationWindow):
                 choices.append(name)
         return tuple(choices)
 
+    def _build_vision_model_choices(self):
+        choices = []
+        for name in (self.config.vision_model, *BUILTIN_VISION_MODELS):
+            if name and name not in choices:
+                choices.append(name)
+        return tuple(choices)
+
     def _api_model(self, selected_model):
         return None if selected_model == self.config.model else selected_model
+
+    def _api_vision_model(self, selected_model):
+        return None if selected_model == self.config.vision_model else selected_model
 
     def _display_model(self, api_model):
         return api_model or self.config.model
@@ -947,6 +1083,59 @@ class TranslateWindow(Gtk.ApplicationWindow):
             )
         self.content_area.append(self._chat_panel)
 
+    def _show_vision_tab(self):
+        if not self._vision_image_path:
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            box.set_css_classes(["content-box"])
+            hint = Gtk.Label(label=VISION_EMPTY_HINT)
+            hint.set_css_classes(["hint"])
+            hint.set_wrap(True)
+            hint.set_xalign(0)
+            box.append(hint)
+            capture_btn = Gtk.Button(label=BTN_VISION_CAPTURE)
+            capture_btn.set_css_classes(["action-btn", "primary"])
+            capture_btn.set_halign(Gtk.Align.START)
+            capture_btn.connect("clicked", self._on_vision_capture)
+            box.append(capture_btn)
+            self.content_area.append(self._wrap_scroll(box))
+            return
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        box.set_css_classes(["content-box"])
+        box.set_hexpand(True)
+
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        card.set_css_classes(["orig-card"])
+        card.append(self._build_vision_preview(self._vision_image_path))
+        box.append(card)
+
+        mode_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        mode_bar.set_css_classes(["button-bar"])
+        short_btn = Gtk.Button(label=BTN_VISION_SHORT)
+        short_btn.set_css_classes(["action-btn"] + ([] if self._vision_detailed else ["primary"]))
+        short_btn.connect("clicked", lambda b: self._regenerate_vision(detailed=False))
+        mode_bar.append(short_btn)
+        detail_btn = Gtk.Button(label=BTN_VISION_DETAILED)
+        detail_btn.set_css_classes(["action-btn"] + (["primary"] if self._vision_detailed else []))
+        detail_btn.connect("clicked", lambda b: self._regenerate_vision(detailed=True))
+        mode_bar.append(detail_btn)
+        box.append(mode_bar)
+
+        box.append(self._ensure_vision_chat_panel())
+        self.content_area.append(box)
+
+    def _build_vision_preview(self, path):
+        max_w = WINDOW_WIDTH - 80
+        try:
+            pixbuf = Gdk.Pixbuf.new_from_file_at_scale(path, max_w, 200, True)
+            preview = Gtk.Picture.new_for_pixbuf(pixbuf)
+        except Exception:
+            preview = Gtk.Picture.new_for_filename(path)
+        preview.set_css_classes(["vision-image"])
+        preview.set_halign(Gtk.Align.START)
+        return preview
+        return False
+
     def _handle_chat_settings_changed(self, panel):
         self._translate_thinking = panel.thinking
         self._explain_thinking = panel.thinking
@@ -955,6 +1144,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self.text = ""
         self.translated = ""
         self.explanation = ""
+        self._vision_context_suppressed = True
         self._cancel_translation_request()
         self._cancel_explain_request()
 
@@ -965,6 +1155,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         request_text = self.text
         request_translated = self.translated
         request_explanation = self.explanation
+        request_vision = "" if self._vision_context_suppressed else self.vision_result
 
         def worker():
             chunks = []
@@ -978,6 +1169,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
                 model=request_model,
                 thinking_enabled=settings.thinking_enabled,
                 include_context=settings.include_context,
+                vision_result=request_vision,
                 cancel_event=cancel_event,
             ):
                 if cancel_event.is_set():
@@ -1393,6 +1585,8 @@ class TranslateWindow(Gtk.ApplicationWindow):
         pass
 
     def _on_edit(self, btn):
+        if self._current_tab not in ("translate", "explain"):
+            return
         self._editing = True
         self._clear_content()
         if self._current_tab == "translate":
@@ -1603,6 +1797,9 @@ class TranslateWindow(Gtk.ApplicationWindow):
         if self._current_tab == "explain":
             self._regenerate_explanation()
             return True
+        if self._current_tab == "vision" and self._vision_image_path:
+            self._regenerate_vision()
+            return True
         return False
 
     def _toggle_current_thinking(self):
@@ -1633,6 +1830,15 @@ class TranslateWindow(Gtk.ApplicationWindow):
                 self._chat_panel.cancel()
                 self._chat_panel._remove_stream_bubble()
                 return True
+            if (
+                self._current_tab == "vision"
+                and self._vision_chat_panel is not None
+                and self._vision_chat_panel.loading
+            ):
+                self._cancel_vision_request()
+                self._vision_chat_panel.cancel()
+                self._vision_chat_panel._remove_stream_bubble()
+                return True
             if self._editing:
                 self._on_edit_cancel(self.edit_btn)
                 return True
@@ -1660,6 +1866,9 @@ class TranslateWindow(Gtk.ApplicationWindow):
         elif key == "c":
             self._switch_tab("chat")
             return True
+        elif key == "v":
+            self._switch_tab("vision")
+            return True
         elif key == "e":
             self._on_edit(self.edit_btn)
             return True
@@ -1680,6 +1889,13 @@ class TranslateWindow(Gtk.ApplicationWindow):
             if self._current_tab == "chat":
                 if self._chat_panel is not None:
                     self._chat_panel.toggle_context()
+                return True
+            if (
+                self._current_tab == "vision"
+                and self._vision_image_path is not None
+                and self._vision_chat_panel is not None
+            ):
+                self._vision_chat_panel.toggle_context()
                 return True
 
         return False

@@ -57,6 +57,7 @@ class ChatPanel(Gtk.Box):
         initial_model,
         initial_thinking=False,
         initial_include_context=True,
+        show_thinking=True,
     ):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_hexpand(True)
@@ -65,6 +66,7 @@ class ChatPanel(Gtk.Box):
         self._model = initial_model
         self._thinking = initial_thinking
         self._include_context = initial_include_context
+        self._show_thinking = show_thinking
 
         self.messages = []
 
@@ -148,6 +150,14 @@ class ChatPanel(Gtk.Box):
         self._include_context = not self._include_context
         self._update_context_button()
         self._handle_settings_change()
+
+    def append_user_message(self, text):
+        """以编程方式追加一条用户消息气泡(不触发请求)。"""
+        text = (text or "").strip()
+        if not text:
+            return
+        self.messages.append(ChatMessage("user", text))
+        self._append_bubble("user", text)
 
     def start_stream(self, cancel_event):
         self._cancel_event = cancel_event
@@ -280,7 +290,8 @@ class ChatPanel(Gtk.Box):
         self._thinking_check.set_css_classes(["thinking-toggle"])
         self._thinking_check.set_active(self._thinking)
         self._thinking_check.connect("toggled", self._on_thinking_toggled)
-        controls.append(self._thinking_check)
+        if self._show_thinking:
+            controls.append(self._thinking_check)
 
         self._context_btn = Gtk.Button(
             label=BTN_WITH_CONTEXT if self._include_context else BTN_NO_CONTEXT

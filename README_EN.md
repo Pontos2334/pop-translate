@@ -16,6 +16,7 @@ Select any text, press a global shortcut, and get instant translation, detailed 
   - **Translate (翻译)** — Instant translation with smart bidirectional language detection (English ⇄ Chinese). Support for inline text editing to refine the source text.
   - **Explain (解释)** — Get a detailed explanation of unfamiliar concepts, syntax, or words within a card layout.
   - **Chat (对话)** — Thread-safe, interactive chat view. Ask follow-up questions about the selected text or translation. Supports one-click copy of assistant replies.
+  - **Vision (识图)** — Capture a screen region and send the image straight to a vision LLM (e.g. `deepseek-v4-flash-vision-exp`): transcribe and translate text in the image, explain errors/code, or describe charts. Analysis and follow-up questions share the same chat-bubble UI with full multi-turn conversation (the screenshot is re-sent to the model on every turn), message editing, regeneration, and one-click copy; switch between "smart analysis" and "detailed description" modes to re-analyze.
 - **🧠 Collapsible Thinking Process Panel** — Streams and visualizes the reasoning process (e.g. DeepSeek-R1) in a native collapsible expander (`Gtk.Expander`) with a premium left border. Auto-collapses when generating finishes to keep the UI clean.
 - **🧹 Reset to Pure Chat** — Clear Chat and all cached text/translation/explanation context with a single click of the "Clear Content (清空内容)" button to switch to pure dialog.
 - **⚡ Keyboard-First Navigation** — Operates entirely mouse-free. Easy-to-remember shortcuts for tab switching, copying, editing, and toggling options. Supports smart `Esc` key interception (stops active stream generation instead of closing the window).
@@ -35,13 +36,14 @@ Pop Translate is designed with keyboard-first users in mind.
 - `S` — Switch to **Translate (翻译)** Tab
 - `W` — Switch to **Explain (解释)** Tab
 - `C` — Switch to **Chat (对话)** Tab
+- `V` — Switch to **Vision (识图)** Tab (start a capture directly from the empty tab)
 - `E` — **Edit (编辑)** original text
 - `R` — **Regenerate (重生成)** translation / explanation / chat message
 - `Y` — **Copy (复制)** translated text (only in Translate tab)
 - `F` — **Search (搜索)** selection online (opens in your default browser via Bing, or opens URL directly if selection is a URL)
 - `P` — **Pin / unpin** popup above other windows (KDE Wayland)
 - `T` — **Toggle Thinking Mode (思考)**
-- `X` — **Toggle Context (上下文)** inclusion in Chat mode
+- `X` — **Toggle Context (上下文)** inclusion in Chat mode / Vision mode (when off in Vision, follow-ups no longer include the screenshot)
 - `Esc` — **Close (关闭)** popup window (during streaming, `Esc` cancels loading first instead of closing the window)
 
 ---
@@ -104,7 +106,8 @@ If it's your first run, a setup wizard will appear:
 1. Enter your **API Key** (e.g. your DeepSeek or OpenAI key).
 2. Enter your **API URL** (Defaults to `https://api.deepseek.com/chat/completions`).
 3. Enter your **Model Name** (defaults to `deepseek-v4-flash`; `deepseek-v4-pro` is also available).
-4. Click **Save** (保存).
+4. Optional: enter the **Vision Model Name** (defaults to `deepseek-v4-flash-vision-exp`, used by the Vision tab for screenshot analysis).
+5. Click **Save** (保存).
 
 Your configuration will be securely saved to `~/.config/pop-translate/config.json`.
 
@@ -122,6 +125,8 @@ Your configuration will be securely saved to `~/.config/pop-translate/config.jso
 
 **Other Desktops (GNOME, i3, Sway, Hyprland, etc.):**
 Bind the executable `pop-translate` to your preferred keyboard shortcut in your desktop environment or window manager settings.
+
+> **Vision hotkey:** bind another global shortcut to `pop-translate --vision` (or `pop-translate -i`) to select a screen region and send it straight to the vision model. You can also click the **AI识图** button in the popup title bar.
 
 ### 6. Connect calibre Viewer
 
@@ -146,6 +151,7 @@ All settings can be customized through the GUI setup or override via environment
 | `POP_TRANSLATE_API_KEY` | *(Required)* | OpenAI-compatible API Key |
 | `POP_TRANSLATE_API_URL` | `https://api.deepseek.com/chat/completions` | API endpoint URL |
 | `POP_TRANSLATE_MODEL` | `deepseek-v4-flash` | Model name |
+| `POP_TRANSLATE_VISION_MODEL` | `deepseek-v4-flash-vision-exp` | Vision model name for the Vision tab |
 
 ---
 

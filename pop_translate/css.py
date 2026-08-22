@@ -185,6 +185,11 @@ CSS = b"""
     line-height: 1.5;
 }
 
+/* Vision tab screenshot preview */
+.vision-image {
+    border-radius: 6px;
+}
+
 .sep {
     min-height: 1px;
     background-color: #e4e4e7;
