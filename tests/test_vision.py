@@ -14,7 +14,7 @@ class _StubVisionConfig:
     api_url = "https://example.test/chat/completions"
     api_key = "sk-test"
     model = "stub-model"
-    vision_model = "deepseek-v4-flash-vision-exp"
+    vision_model = "deepseek-flash"
     timeout = 60
 
 
@@ -56,7 +56,7 @@ def test_vision_prompt_detailed_differs_from_short():
 
 def test_config_vision_model_default_and_env(monkeypatch):
     config = Config()
-    assert config.vision_model == "deepseek-v4-flash-vision-exp"
+    assert config.vision_model == "deepseek-flash"
 
     monkeypatch.setenv("POP_TRANSLATE_VISION_MODEL", "my-custom-vision-model")
     config = Config()

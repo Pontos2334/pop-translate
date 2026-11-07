@@ -1,5 +1,4 @@
-import re
-import time
+import threading
 
 import gi
 
@@ -7,7 +6,6 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import GLib, Gdk, Gtk, Pango
 
-from ..api import StreamEvent
 from ..clipboard import copy_text
 from ..i18n import (
     BTN_CANCEL,
@@ -16,18 +14,36 @@ from ..i18n import (
     BTN_REGENERATE,
     BTN_SEND,
     BTN_THINKING,
+    BTN_CONTEXT,
     BTN_WITH_CONTEXT,
     BTN_NO_CONTEXT,
     CHAT_THINKING,
-    SPEED_LABEL,
+    CHAT_PLACEHOLDER,
+    CHAT_REASONING_TITLE,
+    ERROR_REQUEST_FAILED,
     BTN_COPY_MSG,
     BTN_COPIED_MSG,
-    BTN_CLEAR_CONTENT,
+    BTN_STOP,
+    CHAT_EMPTY_TITLE,
+    CHAT_EMPTY_HINT,
+    CHAT_INPUT_HINT,
+    TOOLTIP_THINKING,
+    TOOLTIP_CLEAR,
+)
+from .widgets import (
+    STREAM_MARKDOWN_REFRESH_DELAY_MS,
+    AutoHeightTextView,
+    SpeedStats,
+    StickToBottom,
+    attach_placeholder,
+    empty_state,
+    icon_button,
+    model_dropdown,
+    render_preserving_scroll,
 )
 
-CHAT_BUBBLE_MIN_WIDTH = 96
-CHAT_BUBBLE_MAX_WIDTH = 480
-STREAM_MARKDOWN_REFRESH_DELAY_MS = 200
+CHAT_BUBBLE_MAX_WIDTH = 520
+CHAT_USER_BUBBLE_MAX_WIDTH = 440
 
 
 class ChatMessage:
@@ -61,6 +77,7 @@ class ChatPanel(Gtk.Box):
     ):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_hexpand(True)
+        self.set_vexpand(True)
 
         self._model_choices = tuple(model_choices)
         self._model = initial_model
@@ -74,16 +91,12 @@ class ChatPanel(Gtk.Box):
         self._loading = False
         self._cancel_event = None
         self._stream_text = ""
+        self._stream_reasoning = ""
         self._stream_view = None
 
-        self._speed_stats = None
-        self._speed_label = None
+        self._speed = SpeedStats()
 
         self._markdown_refresh_id = None
-
-        self._text_min_heights = {}
-        self._text_widths = {}
-        self._text_min_widths = {}
 
         self._on_request_cb = None
         self._on_resize_cb = None
@@ -164,9 +177,11 @@ class ChatPanel(Gtk.Box):
         self._loading = True
         self._stream_text = ""
         self._stream_reasoning = ""
-        self._send_btn.set_sensitive(False)
+        self._update_send_button()
         self._set_bubble_actions_sensitive(False)
         self._stream_view, _ = self._append_bubble("assistant", "")
+        self._stream_view.set_plain_text(CHAT_THINKING)
+        self._bubble_data[-1]["action_box"].set_visible(False)
         if self._bubble_data:
             last = self._bubble_data[-1]
             last["is_stream"] = True
@@ -174,24 +189,24 @@ class ChatPanel(Gtk.Box):
                 last["thinking_container"].set_expanded(True)
                 if self._thinking:
                     last["thinking_container"].set_visible(True)
-                    self._set_text_view_text(last["thinking_view"], CHAT_THINKING)
+                    last["thinking_view"].set_plain_text(CHAT_THINKING)
                 else:
                     last["thinking_container"].set_visible(False)
-        self._start_speed_stats()
+        self._speed.start()
 
     def append_chunk(self, cancel_event, chunk):
         if cancel_event is not self._cancel_event or cancel_event.is_set():
             return
         if not chunk:
             return
-        self._record_speed_chunk(chunk)
+        self._speed.record_chunk(chunk)
         if self._bubble_data:
             last = self._bubble_data[-1]
             if last.get("is_stream") and last["thinking_container"] is not None:
                 if not self._stream_reasoning:
                     last["thinking_container"].set_visible(False)
         if not self._stream_text:
-            self._set_text_view_text(self._stream_view, "")
+            self._stream_view.set_plain_text("")
         self._stream_text += chunk
         self._schedule_markdown_refresh()
 
@@ -199,7 +214,7 @@ class ChatPanel(Gtk.Box):
         if cancel_event is not self._cancel_event or cancel_event.is_set():
             return
         if event.kind == "usage":
-            self._record_speed_usage(event.data)
+            self._speed.record_usage(event.data)
         elif event.kind == "reasoning":
             if not self._thinking:
                 return
@@ -207,9 +222,9 @@ class ChatPanel(Gtk.Box):
                 last = self._bubble_data[-1]
                 if last.get("is_stream") and last["thinking_container"] is not None:
                     if not self._stream_reasoning:
-                        self._set_text_view_text(last["thinking_view"], "")
+                        last["thinking_view"].set_plain_text("")
                     self._stream_reasoning += event.text
-                    self._set_text_view_text(last["thinking_view"], self._stream_reasoning)
+                    last["thinking_view"].set_plain_text(self._stream_reasoning)
                     last["thinking_container"].set_visible(True)
                     last["thinking_container"].set_expanded(True)
 
@@ -222,30 +237,65 @@ class ChatPanel(Gtk.Box):
             result = self._stream_text.strip()
         self.messages.append(ChatMessage("assistant", result))
         self._stream_text = ""
+        stream_view = self._stream_view
+        self._stream_view = None
         self._cancel_markdown_refresh()
-        self._render_markdown_preserving_scroll(
-            self._stream_view, result, self._scroll
-        )
+        if stream_view is not None:
+            render_preserving_scroll(
+                self._scroll, lambda: stream_view.set_markdown_text(result)
+            )
         self._loading = False
         self._cancel_event = None
-        self._send_btn.set_sensitive(True)
+        self._update_send_button()
         self._set_bubble_actions_sensitive(True)
-        self._finish_speed_stats()
+        self._speed.finish()
         if self._bubble_data:
             last = self._bubble_data[-1]
+            last["is_stream"] = False
+            last["action_box"].set_visible(True)
             if last.get("thinking_container") is not None:
                 last["thinking_container"].set_expanded(False)
+
+    def fail_stream(self, cancel_event, error):
+        """流式请求异常终止：复位状态并把错误作为一条消息展示。"""
+        if cancel_event is not self._cancel_event or cancel_event.is_set():
+            return
+        message = f"⚠ {ERROR_REQUEST_FAILED}：{error}"
+        self.messages.append(ChatMessage("assistant", message))
+        self._stream_text = ""
+        stream_view = self._stream_view
+        self._stream_view = None
+        self._cancel_markdown_refresh()
+        self._loading = False
+        self._cancel_event = None
+        self._update_send_button()
+        self._set_bubble_actions_sensitive(True)
+        self._speed.reset()
+        if self._bubble_data and self._bubble_data[-1].get("is_stream"):
+            last = self._bubble_data[-1]
+            last["is_stream"] = False
+            last["action_box"].set_visible(True)
+            if last["thinking_container"] is not None:
+                last["thinking_container"].set_visible(False)
+            if stream_view is not None:
+                stream_view.set_markdown_text(message)
+        self._stick.scroll_bottom()
 
     def cancel(self):
         if self._cancel_event is not None:
             self._cancel_event.set()
         self._cancel_markdown_refresh()
+        self._remove_stream_bubble()
         self._loading = False
         self._cancel_event = None
         self._stream_text = ""
-        self._reset_speed_stats()
-        self._send_btn.set_sensitive(True)
+        self._stream_reasoning = ""
+        self._stream_view = None
+        self._speed.reset()
+        self._update_send_button()
         self._set_bubble_actions_sensitive(True)
+        self._sync_empty_state()
+        self.request_resize()
 
     def reset(self):
         self.cancel()
@@ -259,6 +309,8 @@ class ChatPanel(Gtk.Box):
             next_child = child.get_next_sibling()
             self._chat_list.remove(child)
             child = next_child
+        self._sync_empty_state()
+        self.request_resize()
 
     def request_resize(self):
         if self._on_resize_cb:
@@ -271,78 +323,82 @@ class ChatPanel(Gtk.Box):
         if hasattr(self, "_input"):
             self._input.grab_focus()
 
+    def set_content_height_limit(self, height):
+        """Budget the transcript after the attachment and composer."""
+        width = self.get_width() if self.get_width() > 1 else 680
+        chrome = sum(
+            child.measure(Gtk.Orientation.VERTICAL, width)[1]
+            for child in (self._attachment, self._composer)
+        )
+        limit = max(60, height - chrome)
+        self._scroll.set_min_content_height(min(120, limit))
+        self._scroll.set_max_content_height(limit)
+
+    def set_attachment(self, widget):
+        child = self._attachment.get_first_child()
+        while child is not None:
+            sibling = child.get_next_sibling()
+            self._attachment.remove(child)
+            child = sibling
+        if widget is not None:
+            self._attachment.append(widget)
+
     # -- ui building --
 
     def _build_ui(self):
-        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        controls.set_css_classes(["control-bar", "chat-control-bar"])
-        controls.set_hexpand(True)
-
-        self._model_dropdown = Gtk.DropDown.new_from_strings(
-            list(self._model_choices)
-        )
-        self._model_dropdown.set_css_classes(["model-select"])
-        self._select_model(self._model_dropdown, self._model)
-        self._model_dropdown.connect("notify::selected", self._on_model_changed)
-        controls.append(self._model_dropdown)
-
-        self._thinking_check = Gtk.CheckButton(label=BTN_THINKING)
-        self._thinking_check.set_css_classes(["thinking-toggle"])
-        self._thinking_check.set_active(self._thinking)
-        self._thinking_check.connect("toggled", self._on_thinking_toggled)
-        if self._show_thinking:
-            controls.append(self._thinking_check)
-
-        self._context_btn = Gtk.Button(
-            label=BTN_WITH_CONTEXT if self._include_context else BTN_NO_CONTEXT
-        )
-        self._context_btn.set_css_classes(["action-btn"])
-        self._context_btn.connect("clicked", self._on_context_toggle)
-        controls.append(self._context_btn)
-
-        self._clear_btn = Gtk.Button(label=BTN_CLEAR_CONTENT)
-        self._clear_btn.set_css_classes(["action-btn"])
-        self._clear_btn.connect("clicked", self._on_clear_click)
-        controls.append(self._clear_btn)
-
-        spacer = Gtk.Box()
-        spacer.set_hexpand(True)
-        controls.append(spacer)
-
-        self._speed_label = Gtk.Label(label="")
-        self._speed_label.set_css_classes(["speed-label"])
-        self._speed_label.set_halign(Gtk.Align.END)
-        self._speed_label.set_ellipsize(Pango.EllipsizeMode.END)
-        self._speed_label.set_visible(False)
-        controls.append(self._speed_label)
-
-        self.append(controls)
+        self._attachment = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.append(self._attachment)
 
         self._scroll = Gtk.ScrolledWindow()
         self._scroll.set_has_frame(False)
         self._scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self._scroll.set_propagate_natural_height(True)
-        self._scroll.set_min_content_height(200)
-        self._scroll.set_max_content_height(480)
+        self._scroll.set_min_content_height(120)
+        self._scroll.set_max_content_height(400)
         self._scroll.set_hexpand(True)
+        self._scroll.set_vexpand(True)
 
         self._chat_list = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL, spacing=8
+            orientation=Gtk.Orientation.VERTICAL, spacing=12
         )
-        self._chat_list.set_css_classes(["chat-area"])
+        self._chat_list.set_css_classes(["chat-transcript"])
         self._chat_list.set_hexpand(True)
-        self._scroll.set_child(self._chat_list)
+        self._chat_list.set_valign(Gtk.Align.START)
+        self._transcript = Gtk.Stack()
+        self._transcript.set_hhomogeneous(False)
+        self._transcript.set_vhomogeneous(False)
+        self._transcript.add_named(
+            empty_state("chat-symbolic", CHAT_EMPTY_TITLE, CHAT_EMPTY_HINT),
+            "empty",
+        )
+        self._transcript.add_named(self._chat_list, "messages")
+        self._transcript.set_visible_child_name("empty")
+        self._scroll.set_child(self._transcript)
+        self._stick = StickToBottom(self._scroll)
 
         self.append(self._scroll)
+        self._build_composer()
+        self._update_send_button()
+        self._sync_empty_state()
 
-        input_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        input_bar.set_css_classes(["chat-input-bar"])
-        input_bar.set_hexpand(True)
+    def _build_composer(self):
+        """A single card holds input and its (secondary) settings.
+
+        Keeping model/thinking/context in the composer instead of a full-width
+        toolbar above the transcript removes a whole bar of chrome and makes
+        clear that those controls belong to the next message, not the page.
+        """
+        composer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        composer.set_css_classes(["chat-composer"])
+        self._composer = composer
+
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        card.set_css_classes(["composer-card"])
 
         scrolled_input = Gtk.ScrolledWindow()
         scrolled_input.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled_input.set_min_content_height(44)
-        scrolled_input.set_max_content_height(100)
+        scrolled_input.set_min_content_height(34)
+        scrolled_input.set_max_content_height(120)
         scrolled_input.set_propagate_natural_height(True)
         scrolled_input.set_hexpand(True)
         scrolled_input.set_focusable(False)
@@ -359,15 +415,60 @@ class ChatPanel(Gtk.Box):
         self._input.get_buffer().connect("changed", self._on_input_changed)
 
         scrolled_input.set_child(self._input)
-        input_bar.append(scrolled_input)
+        card.append(attach_placeholder(scrolled_input, self._input, CHAT_PLACEHOLDER))
+
+        tools = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        tools.set_hexpand(True)
+
+        self._model_dropdown = model_dropdown(
+            self._model_choices, self._model, max_chars=16
+        )
+        self._model_dropdown.connect("notify::selected", self._on_model_changed)
+        tools.append(self._model_dropdown)
+
+        self._thinking_check = Gtk.CheckButton(label=BTN_THINKING)
+        self._thinking_check.set_css_classes(["thinking-toggle"])
+        self._thinking_check.set_active(self._thinking)
+        self._thinking_check.set_tooltip_text(TOOLTIP_THINKING)
+        self._thinking_check.connect("toggled", self._on_thinking_toggled)
+        if self._show_thinking:
+            tools.append(self._thinking_check)
+
+        self._context_btn = Gtk.Button(label=BTN_CONTEXT)
+        self._context_btn.set_css_classes(["chip-toggle"])
+        self._context_btn.connect("clicked", self._on_context_toggle)
+        self._update_context_button()
+        tools.append(self._context_btn)
+
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        tools.append(spacer)
+
+        speed_label = Gtk.Label(label="")
+        speed_label.set_css_classes(["speed-label"])
+        speed_label.set_ellipsize(Pango.EllipsizeMode.END)
+        speed_label.set_max_width_chars(14)
+        speed_label.set_visible(False)
+        speed_label.set_valign(Gtk.Align.CENTER)
+        tools.append(speed_label)
+        self._speed.set_label(speed_label)
+
+        self._clear_btn = icon_button(
+            "trash-symbolic", TOOLTIP_CLEAR, css_classes=("mini-btn",), icon_size=13
+        )
+        self._clear_btn.connect("clicked", self._on_clear_click)
+        tools.append(self._clear_btn)
 
         self._send_btn = Gtk.Button(label=BTN_SEND)
         self._send_btn.set_css_classes(["chat-send"])
-        self._send_btn.set_sensitive(True)
+        self._send_btn.set_valign(Gtk.Align.CENTER)
+        self._send_btn.set_tooltip_text(CHAT_INPUT_HINT)
         self._send_btn.connect("clicked", lambda b: self._on_send())
-        input_bar.append(self._send_btn)
+        tools.append(self._send_btn)
 
-        self.append(input_bar)
+        card.append(tools)
+        composer.append(card)
+        self.append(composer)
 
     # -- settings --
 
@@ -395,9 +496,7 @@ class ChatPanel(Gtk.Box):
     def _on_context_toggle(self, btn):
         self._include_context = not self._include_context
         self._update_context_button()
-        if self._loading:
-            self.cancel()
-            self._remove_stream_bubble()
+        self._handle_settings_change()
 
     def _on_clear_click(self, btn):
         self.reset()
@@ -406,17 +505,20 @@ class ChatPanel(Gtk.Box):
 
     def _update_context_button(self):
         if hasattr(self, "_context_btn"):
-            self._context_btn.set_label(
-                BTN_WITH_CONTEXT if self._include_context else BTN_NO_CONTEXT
+            self._context_btn.set_label(BTN_CONTEXT)
+            self._context_btn.set_tooltip_text(
+                f"{BTN_WITH_CONTEXT if self._include_context else BTN_NO_CONTEXT}（X）"
             )
+            if self._include_context:
+                self._context_btn.add_css_class("context-active")
+            else:
+                self._context_btn.remove_css_class("context-active")
 
     def _handle_settings_change(self):
         if self._on_settings_changed_cb:
             self._on_settings_changed_cb(self)
-        if not self._loading:
-            return
-        self.cancel()
-        self._remove_stream_bubble()
+        if self._loading:
+            self.cancel()
 
     def _remove_stream_bubble(self):
         if not self._bubble_data:
@@ -432,6 +534,7 @@ class ChatPanel(Gtk.Box):
 
     def _on_send(self):
         if self._loading:
+            self.cancel()
             return
         buf = self._input.get_buffer()
         start = buf.get_start_iter()
@@ -472,25 +575,22 @@ class ChatPanel(Gtk.Box):
             return
         text = self.messages[index].content
 
-        def worker():
-            copy_text(text)
-
-        import threading
-        threading.Thread(target=worker, daemon=True).start()
+        threading.Thread(target=lambda: copy_text(text), daemon=True).start()
 
         btn.set_label(BTN_COPIED_MSG)
         btn.set_sensitive(False)
         btn.add_css_class("copied")
 
-        GLib.timeout_add_seconds(
-            1,
-            lambda: (
-                btn.remove_css_class("copied"),
-                btn.set_sensitive(True),
-                btn.set_label(BTN_COPY_MSG),
-                False,
-            )[-1],
-        )
+        def reset_btn():
+            # 按钮可能已随气泡/面板销毁
+            if btn.get_root() is None:
+                return False
+            btn.remove_css_class("copied")
+            btn.set_sensitive(True)
+            btn.set_label(BTN_COPY_MSG)
+            return False
+
+        GLib.timeout_add_seconds(1, reset_btn)
 
     # -- edit mode --
 
@@ -502,22 +602,25 @@ class ChatPanel(Gtk.Box):
         data["action_box"].set_visible(False)
 
         edit_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        edit_box.set_css_classes(["chat-bubble-user", "chat-bubble-editing"])
-        edit_box.set_size_request(CHAT_BUBBLE_MAX_WIDTH, -1)
+        edit_box.set_hexpand(True)
 
         edit_sw = Gtk.ScrolledWindow()
         edit_sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         edit_sw.set_min_content_height(36)
         edit_sw.set_max_content_height(100)
         edit_sw.set_propagate_natural_height(True)
+        edit_sw.set_propagate_natural_width(True)
+        edit_sw.set_max_content_width(CHAT_USER_BUBBLE_MAX_WIDTH)
         edit_sw.set_hexpand(True)
         edit_sw.set_css_classes(["chat-bubble-edit-sw"])
 
-        edit_view = Gtk.TextView()
-        edit_view.get_buffer().set_text(original_text)
-        edit_view.set_css_classes(["chat-bubble-edit-view"])
-        edit_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        edit_view.set_accepts_tab(False)
+        edit_view = AutoHeightTextView(
+            original_text, ["chat-bubble-edit-view"],
+            max_width=CHAT_USER_BUBBLE_MAX_WIDTH,
+            on_resize=lambda _view: self.request_resize(),
+        )
+        edit_view.set_editable(True)
+        edit_view.set_cursor_visible(True)
 
         edit_view.get_buffer().connect("changed", lambda buf: self.request_resize())
 
@@ -559,6 +662,7 @@ class ChatPanel(Gtk.Box):
             data["edit_view"] = None
         data["readonly_view"].set_visible(True)
         data["action_box"].set_visible(True)
+        self.request_resize()
 
     def _on_edit_confirm(self, btn, index):
         data = self._bubble_data[index]
@@ -573,7 +677,7 @@ class ChatPanel(Gtk.Box):
         self.messages[index] = ChatMessage("user", new_text)
         self._truncate_after(index + 1)
 
-        data["readonly_view"].get_buffer().set_text(new_text)
+        data["readonly_view"].set_plain_text(new_text)
         self._exit_edit_mode(index)
         self._request_response()
 
@@ -604,7 +708,26 @@ class ChatPanel(Gtk.Box):
         return False
 
     def _on_input_changed(self, buf):
+        self._update_send_button()
         self.request_resize()
+
+    def _update_send_button(self):
+        if not hasattr(self, "_send_btn"):
+            return
+        buf = self._input.get_buffer()
+        text = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).strip()
+        self._send_btn.set_label(BTN_STOP if self._loading else BTN_SEND)
+        self._send_btn.set_sensitive(self._loading or bool(text))
+        if self._loading:
+            self._send_btn.add_css_class("stop")
+        else:
+            self._send_btn.remove_css_class("stop")
+
+    def _sync_empty_state(self):
+        has_messages = bool(self._bubble_data)
+        self._transcript.set_visible_child_name("messages" if has_messages else "empty")
+        if hasattr(self, "_clear_btn"):
+            self._clear_btn.set_visible(has_messages)
 
     # -- bubbles --
 
@@ -612,36 +735,42 @@ class ChatPanel(Gtk.Box):
         if index is None:
             index = len(self._bubble_data)
 
-        css_classes = (
-            ["chat-bubble-user"] if role == "user" else ["chat-bubble-ai"]
-        )
-        view = self._readonly_text_view(
+        view = AutoHeightTextView(
             text,
-            css_classes,
-            min_height=40,
+            ["message-text"],
+            min_height=20,
             markdown=(role != "user"),
-            width=CHAT_BUBBLE_MAX_WIDTH,
+            max_width=(
+                CHAT_BUBBLE_MAX_WIDTH if role == "assistant" else CHAT_USER_BUBBLE_MAX_WIDTH
+            ),
+            on_resize=lambda _v: self.request_resize(),
         )
         view.set_justification(Gtk.Justification.LEFT)
 
         content_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        content_vbox.set_hexpand(True)
+        content_vbox.set_valign(Gtk.Align.START)
 
         thinking_container = None
         thinking_view = None
 
         if role == "assistant":
-            thinking_container = Gtk.Expander.new("思维过程")
+            thinking_container = Gtk.Expander.new(CHAT_REASONING_TITLE)
             thinking_container.set_css_classes(["chat-thinking-expander"])
             thinking_container.set_expanded(True)
             thinking_container.set_visible(False)
+            thinking_container.set_hexpand(True)
+            thinking_container.set_halign(Gtk.Align.FILL)
 
-            thinking_view = self._readonly_text_view(
+            # 思维链不设固定最大宽：跟随气泡实际宽度(hexpand)，避免其
+            # 最小宽度把整个气泡撑宽、进而让正文多算出多余高度
+            thinking_view = AutoHeightTextView(
                 "",
                 ["chat-bubble-thinking-text"],
                 min_height=20,
-                markdown=False,
-                width=CHAT_BUBBLE_MAX_WIDTH - 24,
+                on_resize=lambda _v: self.request_resize(),
             )
+            thinking_view.set_hexpand(True)
             thinking_container.set_child(thinking_view)
             content_vbox.append(thinking_container)
 
@@ -680,13 +809,16 @@ class ChatPanel(Gtk.Box):
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         row.set_css_classes(["chat-row"])
         row.set_hexpand(True)
+        row.set_valign(Gtk.Align.START)
 
         spacer = Gtk.Box()
         spacer.set_hexpand(True)
 
         bubble = Gtk.Box()
-        bubble.set_css_classes(["chat-bubble-wrap"])
-        bubble.set_size_request(CHAT_BUBBLE_MIN_WIDTH, -1)
+        bubble.set_css_classes([
+            "chat-bubble-wrap", "chat-bubble-user" if role == "user" else "chat-bubble-ai"
+        ])
+        bubble.set_valign(Gtk.Align.START)
         bubble.set_hexpand(False)
         bubble.append(content_vbox)
 
@@ -698,7 +830,7 @@ class ChatPanel(Gtk.Box):
             row.append(spacer)
 
         self._chat_list.append(row)
-        self._scroll_to_bottom()
+        self._stick.scroll_bottom()
 
         bubble_data = {
             "row": row,
@@ -719,15 +851,9 @@ class ChatPanel(Gtk.Box):
         else:
             self._bubble_data.append(bubble_data)
 
+        self._sync_empty_state()
+        self.request_resize()
         return view, row
-
-    def _scroll_to_bottom(self):
-        def scroll():
-            adj = self._scroll.get_vadjustment()
-            adj.set_value(max(0, adj.get_upper() - adj.get_page_size()))
-            return False
-
-        GLib.idle_add(scroll)
 
     def _set_bubble_actions_sensitive(self, sensitive):
         for data in self._bubble_data:
@@ -750,166 +876,8 @@ class ChatPanel(Gtk.Box):
             row_index += 1
         for row in to_remove:
             self._chat_list.remove(row)
-
-    # -- text view helpers --
-
-    def _readonly_text_view(
-        self, text, css_classes, min_height=24, markdown=False, width=None
-    ):
-        view = Gtk.TextView()
-        view.set_css_classes(css_classes)
-        view.set_editable(False)
-        view.set_cursor_visible(False)
-        view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        view.set_accepts_tab(False)
-        view.set_hexpand(width is None)
-        view.set_vexpand(False)
-        view.set_valign(Gtk.Align.START)
-        self._text_min_heights[view] = min_height
-        self._text_widths[view] = width if width is not None else -1
-        if width is not None:
-            view.set_size_request(width, -1)
-        view.get_buffer().connect(
-            "changed", lambda _buf, v=view: self._schedule_text_view_height(v)
-        )
-        if markdown:
-            self._set_text_view_markdown(view, text or "")
-        else:
-            view.get_buffer().set_text(text or "")
-        self._schedule_text_view_height(view)
-        return view
-
-    def _set_text_view_text(self, view, text):
-        if view is None:
-            return
-        view.get_buffer().set_text(text or "")
-        self._schedule_text_view_height(view)
-
-    def _schedule_text_view_height(self, view):
-        GLib.idle_add(self._refresh_text_view_height, view)
-
-    def _refresh_text_view_height(self, view, request_resize=True):
-        if view is None or view.get_parent() is None:
-            return False
-        width = self._text_widths.get(view, -1)
-        alloc_w = view.get_allocated_width()
-        if alloc_w <= 1:
-            if width > 0:
-                view.set_size_request(width, -1)
-            if request_resize:
-                GLib.timeout_add(20, self._refresh_text_view_height, view)
-            return False
-        min_height = self._text_min_heights.get(view, 24)
-        # 用 TextView 在目标宽度下的自然高度(已含 CSS padding / 行距),
-        # 直接作为 size_request,避免 iter_location 与实际渲染高度不一致
-        # 而把气泡撑出多余空白。
-        for_w = alloc_w if alloc_w > 1 else width
-        _, natural_h, _, _ = view.measure(Gtk.Orientation.VERTICAL, for_w)
-        height = max(min_height, natural_h)
-        view.set_size_request(width, height)
-        if request_resize:
-            self.request_resize()
-        return False
-
-    def _ensure_markdown_tags(self, buf):
-        table = buf.get_tag_table()
-        if table.lookup("md_bold") is None:
-            buf.create_tag("md_bold", weight=Pango.Weight.BOLD)
-        if table.lookup("md_italic") is None:
-            buf.create_tag("md_italic", style=Pango.Style.ITALIC)
-        if table.lookup("md_code") is None:
-            buf.create_tag(
-                "md_code",
-                family="monospace",
-                background="#f4f4f5",
-                foreground="#18181b",
-            )
-        if table.lookup("md_heading") is None:
-            buf.create_tag("md_heading", weight=Pango.Weight.BOLD, scale=1.18)
-        if table.lookup("md_link") is None:
-            buf.create_tag(
-                "md_link", underline=Pango.Underline.SINGLE, foreground="#0969da"
-            )
-
-    def _insert_tagged(self, buf, text, tag_names=()):
-        if not text:
-            return
-        start_offset = buf.get_end_iter().get_offset()
-        buf.insert(buf.get_end_iter(), text)
-        start = buf.get_iter_at_offset(start_offset)
-        end = buf.get_iter_at_offset(start_offset + len(text))
-        for tag_name in tag_names:
-            buf.apply_tag_by_name(tag_name, start, end)
-
-    def _insert_markdown_inline(self, buf, text, base_tags=()):
-        pattern = re.compile(
-            r"`([^`]+)`"
-            r"|\*\*([^*]+)\*\*"
-            r"|\[([^\]]+)\]\([^)]+\)"
-            r"|(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)"
-        )
-        pos = 0
-        for match in pattern.finditer(text):
-            if match.start() > pos:
-                self._insert_tagged(buf, text[pos : match.start()], base_tags)
-            if match.group(1) is not None:
-                self._insert_tagged(
-                    buf, match.group(1), (*base_tags, "md_code")
-                )
-            elif match.group(2) is not None:
-                self._insert_tagged(
-                    buf, match.group(2), (*base_tags, "md_bold")
-                )
-            elif match.group(3) is not None:
-                self._insert_tagged(
-                    buf, match.group(3), (*base_tags, "md_link")
-                )
-            elif match.group(4) is not None:
-                self._insert_tagged(
-                    buf, match.group(4), (*base_tags, "md_italic")
-                )
-            pos = match.end()
-        if pos < len(text):
-            self._insert_tagged(buf, text[pos:], base_tags)
-
-    def _set_text_view_markdown(self, view, text):
-        if view is None:
-            return
-        buf = view.get_buffer()
-        self._ensure_markdown_tags(buf)
-        buf.set_text("")
-        if not text:
-            self._schedule_text_view_height(view)
-            return
-
-        in_code_block = False
-        for line in text.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("```"):
-                in_code_block = not in_code_block
-                continue
-            if in_code_block:
-                self._insert_tagged(buf, line + "\n", ("md_code",))
-                continue
-
-            heading = re.match(r"^\s*#{1,4}\s+(.+)$", line)
-            bullet = re.match(r"^\s*[-*]\s+(.+)$", line)
-            numbered = re.match(r"^\s*(\d+)\.\s+(.+)$", line)
-            if heading:
-                self._insert_markdown_inline(
-                    buf, heading.group(1).strip(), ("md_heading",)
-                )
-            elif bullet:
-                self._insert_tagged(buf, "  • ")
-                self._insert_markdown_inline(buf, bullet.group(1))
-            elif numbered:
-                self._insert_tagged(buf, f"  {numbered.group(1)}. ")
-                self._insert_markdown_inline(buf, numbered.group(2))
-            else:
-                self._insert_markdown_inline(buf, line)
-            self._insert_tagged(buf, "\n")
-
-        self._schedule_text_view_height(view)
+        self._sync_empty_state()
+        self.request_resize()
 
     # -- markdown refresh --
 
@@ -930,107 +898,9 @@ class ChatPanel(Gtk.Box):
         if self.get_parent() is None:
             return False
         if self._stream_view is not None:
-            self._render_markdown_preserving_scroll(
-                self._stream_view, self._stream_text, self._scroll
+            view = self._stream_view
+            text = self._stream_text
+            render_preserving_scroll(
+                self._scroll, lambda: view.set_markdown_text(text)
             )
         return False
-
-    def _render_markdown_preserving_scroll(self, view, text, scrolled):
-        if view is None:
-            return
-        adjustment = scrolled.get_vadjustment() if scrolled is not None else None
-        scroll_value = (
-            adjustment.get_value() if adjustment is not None else None
-        )
-        was_at_bottom = (
-            self._is_adjustment_at_bottom(adjustment)
-            if adjustment is not None
-            else False
-        )
-        self._set_text_view_markdown(view, text)
-        self.request_resize()
-        if adjustment is not None and scroll_value is not None:
-            GLib.timeout_add(
-                20,
-                self._restore_adjustment_value,
-                adjustment,
-                scroll_value,
-                was_at_bottom,
-            )
-
-    def _is_adjustment_at_bottom(self, adjustment):
-        if adjustment is None:
-            return False
-        upper = adjustment.get_upper()
-        page_size = adjustment.get_page_size()
-        max_value = max(0, upper - page_size)
-        return adjustment.get_value() >= max_value - 2
-
-    def _restore_adjustment_value(self, adjustment, value, scroll_to_bottom=False):
-        upper = adjustment.get_upper()
-        page_size = adjustment.get_page_size()
-        max_value = max(0, upper - page_size)
-        adjustment.set_value(
-            max_value if scroll_to_bottom else min(value, max_value)
-        )
-        return False
-
-    # -- speed stats --
-
-    def _start_speed_stats(self):
-        self._speed_stats = {
-            "start": time.monotonic(),
-            "chars": 0,
-            "completion_tokens": None,
-            "cached": False,
-            "final": False,
-        }
-        self._refresh_speed_label()
-
-    def _reset_speed_stats(self):
-        self._speed_stats = None
-        self._refresh_speed_label()
-
-    def _record_speed_chunk(self, chunk):
-        stats = self._speed_stats
-        if stats is None or stats.get("cached"):
-            return
-        stats["chars"] += len(chunk)
-        self._refresh_speed_label()
-
-    def _record_speed_usage(self, usage):
-        stats = self._speed_stats
-        if stats is None or not isinstance(usage, dict):
-            return
-        completion_tokens = usage.get("completion_tokens")
-        if isinstance(completion_tokens, int) and completion_tokens > 0:
-            stats["completion_tokens"] = completion_tokens
-
-    def _finish_speed_stats(self):
-        stats = self._speed_stats
-        if stats is None:
-            return
-        stats["final"] = True
-        self._refresh_speed_label()
-
-    def _refresh_speed_label(self):
-        if self._speed_label is None:
-            return
-        stats = self._speed_stats
-        if stats is None or stats.get("cached"):
-            self._speed_label.set_label("")
-            self._speed_label.set_visible(False)
-            return
-        elapsed = max(0.001, time.monotonic() - stats["start"])
-        completion_tokens = stats.get("completion_tokens")
-        if stats.get("final") and completion_tokens:
-            text = f"{SPEED_LABEL} {completion_tokens / elapsed:.1f} token/s"
-        else:
-            chars = stats.get("chars", 0)
-            if chars <= 0:
-                self._speed_label.set_label("")
-                self._speed_label.set_visible(False)
-                return
-            text = f"{SPEED_LABEL} {chars / elapsed:.1f} 字/s"
-        self._speed_label.set_label(text)
-        self._speed_label.set_visible(True)

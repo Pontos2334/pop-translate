@@ -1,0 +1,6 @@
+Icons in this directory are derived from Material Design Icons
+(https://pictogrammers.com/library/mdi/), provided by Pictogrammers under the
+Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0).
+
+The SVG files are generated as 24x24 fill-only symbols with a `pt-` prefix so
+they are always resolved from this app instead of the desktop icon theme.

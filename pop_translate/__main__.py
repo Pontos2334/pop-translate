@@ -187,7 +187,7 @@ def last_captured_image():
 
 
 class TranslateApp(Gtk.Application):
-    def __init__(self, text, config, history_db, default_tab, vision_bootstrapping=False):
+    def __init__(self, text, config, history_db, default_tab, vision_image_path=None):
         super().__init__(
             application_id="com.translate.popup",
             flags=Gio.ApplicationFlags.NON_UNIQUE,
@@ -196,7 +196,7 @@ class TranslateApp(Gtk.Application):
         self.config = config
         self.history_db = history_db
         self.default_tab = default_tab
-        self.vision_bootstrapping = vision_bootstrapping
+        self.vision_image_path = vision_image_path
 
     def do_activate(self):
         self.win = TranslateWindow(
@@ -205,7 +205,7 @@ class TranslateApp(Gtk.Application):
             self.config,
             self.history_db,
             self.default_tab,
-            self.vision_bootstrapping,
+            vision_image_path=self.vision_image_path,
         )
         self.win.present()
 
@@ -235,9 +235,9 @@ def resolve_default_tab(text, requested_tab="auto"):
     return "translate" if should_translate(text) else "explain"
 
 
-def run_popup(text, config, default_tab, vision_bootstrapping=False):
+def run_popup(text, config, default_tab, vision_image_path=None):
     history_db = HistoryDB()
-    app = TranslateApp(text, config, history_db, default_tab, vision_bootstrapping)
+    app = TranslateApp(text, config, history_db, default_tab, vision_image_path)
     return app.run(None)
 
 
@@ -263,12 +263,12 @@ def main(argv=None):
         sys.exit(0)
 
     text = ""
-    vision_bootstrapping = False
+    vision_image_path = None
     should_copy_original = False
     if args.vision:
         if not capture_screenshot():
             sys.exit(0)
-        vision_bootstrapping = True
+        vision_image_path = last_captured_image()
     elif args.text is not None:
         text = args.text.strip()
         if not text:
@@ -285,11 +285,11 @@ def main(argv=None):
     if should_copy_original:
         copy_text(text)
 
-    if vision_bootstrapping:
+    if vision_image_path:
         default_tab = "vision"
     else:
         default_tab = resolve_default_tab(text, args.tab)
-    sys.exit(run_popup(text, config, default_tab, vision_bootstrapping))
+    sys.exit(run_popup(text, config, default_tab, vision_image_path))
 
 
 if __name__ == "__main__":

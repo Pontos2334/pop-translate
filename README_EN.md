@@ -6,21 +6,21 @@ A lightweight, beautiful AI-powered word selection translation and explanation t
 
 Select any text, press a global shortcut, and get instant translation, detailed explanation, or an interactive chat in a premium, hardware-accelerated macOS-style popup window.
 
-![screenshot](screenshot_v2.png)
+![screenshot](screenshot_v3.png)
 
 ## ✨ Features
 
 - **🚀 GUI Initial Configuration** — No command-line setup required! If no API key is configured on first start, a beautiful GUI configuration wizard will guide you to set your API Key, API URL, and Model.
-- **🎨 Premium macOS Aesthetics** — Upgraded to a minimalist modern light theme featuring capsule pill navigation tab-switching, drop-shadow cards, clean grey borders, custom drop-downs, and a custom optimized font stack (`Inter`, `Cantarell`, `Roboto`, `思源黑体`).
+- **🎨 Content-First, Lightweight Interface** — A single compact header holds the brand, tabs, and window actions. The source stays quiet in small print (clamped to three lines), while the translation/explanation is the visual hero: larger type, more breathing room. Model, thinking, and regenerate controls move to a slim footer so they never crowd the result. A light palette, blue accent, and one consistent icon set tie the four tabs together.
 - **🗂️ Powerful Tabbed Workflow**:
   - **Translate (翻译)** — Instant translation with smart bidirectional language detection (English ⇄ Chinese). Support for inline text editing to refine the source text.
-  - **Explain (解释)** — Get a detailed explanation of unfamiliar concepts, syntax, or words within a card layout.
-  - **Chat (对话)** — Thread-safe, interactive chat view. Ask follow-up questions about the selected text or translation. Supports one-click copy of assistant replies.
-  - **Vision (识图)** — Capture a screen region and send the image straight to a vision LLM (e.g. `deepseek-v4-flash-vision-exp`): transcribe and translate text in the image, explain errors/code, or describe charts. Analysis and follow-up questions share the same chat-bubble UI with full multi-turn conversation (the screenshot is re-sent to the model on every turn), message editing, regeneration, and one-click copy; switch between "smart analysis" and "detailed description" modes to re-analyze.
+  - **Explain (解释)** — A clear Markdown hierarchy for unfamiliar concepts, syntax, or words, with short and detailed modes.
+  - **Chat (对话)** — A content-first transcript where assistant replies flow without heavy bubbles. The input, model, thinking, and context controls share one compact composer card; replies support copy, edit, and regenerate.
+  - **Vision (识图)** — Capture a screen region and send the image straight to a vision LLM (e.g. `deepseek-flash`): transcribe and translate text in the image, explain errors/code, or describe charts. Analysis and follow-up questions share the same chat-bubble UI with full multi-turn conversation (the screenshot is re-sent to the model on every turn), message editing, regeneration, and one-click copy; switch between "smart analysis" and "detailed description" modes to re-analyze.
 - **🧠 Collapsible Thinking Process Panel** — Streams and visualizes the reasoning process (e.g. DeepSeek-R1) in a native collapsible expander (`Gtk.Expander`) with a premium left border. Auto-collapses when generating finishes to keep the UI clean.
 - **🧹 Reset to Pure Chat** — Clear Chat and all cached text/translation/explanation context with a single click of the "Clear Content (清空内容)" button to switch to pure dialog.
 - **⚡ Keyboard-First Navigation** — Operates entirely mouse-free. Easy-to-remember shortcuts for tab switching, copying, editing, and toggling options. Supports smart `Esc` key interception (stops active stream generation instead of closing the window).
-- **📭 Dynamic Height Auto-Sizing** — Interactive multi-line inputs dynamically grow the window size gracefully when you type, and instantly snap back when the message is sent or cleared. Chat edit box size matches bubble width with dynamic auto-sizing.
+- **📭 Content-Driven Layout** — Short messages stay compact, while GTK's native text layout handles long replies, Markdown, and window resizing. Content scrolls independently of the footer settings and composer. Long source text clamps to three lines with an expand toggle. Screenshots appear in a compact attachment strip with a clickable preview, and active generation can be stopped from the composer.
 - **🔒 Security & API Leak Protection** — Automatic redaction and sanitization of API keys, Bearer tokens, or generic `sk-` credentials in error messages or logs.
 - **💾 Local SQLite Caching** — Identical selection queries hit a local SQLite cache instantly, avoiding duplicate API calls. Auto-clears entries older than 24 hours to stay lightweight.
 - **🛸 Zero Idle Footprint** — Designed as a popup widget. Standard processes exit instantly upon closing, consuming zero background RAM.
@@ -105,8 +105,8 @@ Simply run `pop-translate` in your terminal or trigger it.
 If it's your first run, a setup wizard will appear:
 1. Enter your **API Key** (e.g. your DeepSeek or OpenAI key).
 2. Enter your **API URL** (Defaults to `https://api.deepseek.com/chat/completions`).
-3. Enter your **Model Name** (defaults to `deepseek-v4-flash`; `deepseek-v4-pro` is also available).
-4. Optional: enter the **Vision Model Name** (defaults to `deepseek-v4-flash-vision-exp`, used by the Vision tab for screenshot analysis).
+3. Enter your **Model Name** (defaults to `deepseek-flash`; `deepseek-v4-pro` is also available).
+4. Optional: enter the **Vision Model Name** (defaults to `deepseek-flash`, used by the Vision tab for screenshot analysis).
 5. Click **Save** (保存).
 
 Your configuration will be securely saved to `~/.config/pop-translate/config.json`.
@@ -126,7 +126,7 @@ Your configuration will be securely saved to `~/.config/pop-translate/config.jso
 **Other Desktops (GNOME, i3, Sway, Hyprland, etc.):**
 Bind the executable `pop-translate` to your preferred keyboard shortcut in your desktop environment or window manager settings.
 
-> **Vision hotkey:** bind another global shortcut to `pop-translate --vision` (or `pop-translate -i`) to select a screen region and send it straight to the vision model. You can also click the **AI识图** button in the popup title bar.
+> **Vision hotkey:** bind another global shortcut to `pop-translate --vision` (or `pop-translate -i`) to select a screen region and send it straight to the vision model. You can also switch to the **识图 (Vision)** tab and click 「截图并分析」.
 
 ### 6. Connect calibre Viewer
 
@@ -150,14 +150,16 @@ All settings can be customized through the GUI setup or override via environment
 |----------|---------|-------------|
 | `POP_TRANSLATE_API_KEY` | *(Required)* | OpenAI-compatible API Key |
 | `POP_TRANSLATE_API_URL` | `https://api.deepseek.com/chat/completions` | API endpoint URL |
-| `POP_TRANSLATE_MODEL` | `deepseek-v4-flash` | Model name |
-| `POP_TRANSLATE_VISION_MODEL` | `deepseek-v4-flash-vision-exp` | Vision model name for the Vision tab |
+| `POP_TRANSLATE_MODEL` | `deepseek-flash` | Model name |
+| `POP_TRANSLATE_VISION_MODEL` | `deepseek-flash` | Vision model name for the Vision tab |
 
 ---
 
 ## 🎨 Themes & Styling
 
-The interface features custom styling located in `pop_translate/css.py`. It uses hardware-accelerated GTK4 CSS nodes. You can edit `css.py` to change themes, custom colors, roundness, or font families to match your Linux rice.
+The interface features custom styling located in `pop_translate/css.py`, built on hardware-accelerated GTK4 CSS nodes. It uses a soft plum/lavender light palette and **inherits the system GTK font** (no hard-coded family, weight, or base size), so it matches your desktop settings. You can edit the design tokens in `css.py` to change the palette, shadow, roundness, or typography.
+
+UI icons come from [Material Design Icons](https://pictogrammers.com/library/mdi/) (Apache-2.0) and live in `pop_translate/ui/icons/`; see the `LICENSE` file in that directory.
 
 ---
 
