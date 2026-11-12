@@ -371,7 +371,10 @@ def _chat_messages(
             context_parts.append(f"识图结果：{vision_result}")
         if context_parts:
             messages.append(
-                {"role": "user", "content": "上下文信息如下：\n" + "\n".join(context_parts)}
+                {
+                    "role": "user",
+                    "content": "上下文信息如下：\n" + "\n".join(context_parts),
+                }
             )
             messages.append(
                 {
@@ -402,7 +405,13 @@ def chat(
         None,
         config,
         messages=_chat_messages(
-            text, translated, explanation, chat_messages, user_input, include_context, vision_result
+            text,
+            translated,
+            explanation,
+            chat_messages,
+            user_input,
+            include_context,
+            vision_result,
         ),
         model=model,
         thinking_enabled=thinking_enabled,
@@ -432,7 +441,13 @@ def chat_stream(
         None,
         config,
         messages=_chat_messages(
-            text, translated, explanation, chat_messages, user_input, include_context, vision_result
+            text,
+            translated,
+            explanation,
+            chat_messages,
+            user_input,
+            include_context,
+            vision_result,
         ),
         model=model,
         thinking_enabled=thinking_enabled,

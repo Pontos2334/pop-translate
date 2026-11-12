@@ -206,18 +206,61 @@ CSS = b"""
 
 dropdown.model-select { background: transparent; border: none; padding: 0; }
 dropdown.model-select > button {
-    min-height: 16px;
-    padding: 3px 8px;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    background-color: transparent;
-    color: @ink_soft;
+    min-height: 18px;
+    padding: 4px 9px;
+    border: 1px solid @accent_line;
+    border-radius: 8px;
+    background: @accent_soft;
+    color: @accent;
     font-size: 11px;
-    font-weight: 500;
+    font-weight: 600;
     box-shadow: none;
 }
-dropdown.model-select > button:hover { background-color: @canvas; border-color: @line_soft; }
-dropdown.model-select arrow { color: @faint; margin-left: 4px; }
+dropdown.model-select > button:hover,
+dropdown.model-select > button:checked {
+    background: @accent_line;
+    border-color: #d4c3e6;
+}
+/* GTK also renders the button's current item as a row. Keep the desktop
+   theme's blue hover/selection background out of this inner row. */
+dropdown.model-select > button row,
+dropdown.model-select > button row:hover,
+dropdown.model-select > button row:selected {
+    background: transparent;
+    color: @accent;
+    box-shadow: none;
+}
+dropdown.model-select arrow { color: @accent; opacity: 0.65; margin-left: 5px; }
+dropdown.model-select popover > contents {
+    padding: 5px;
+    border-radius: 12px;
+}
+dropdown.model-select popover listview {
+    min-width: 216px;
+    padding: 0;
+    background: transparent;
+    color: @ink_soft;
+}
+dropdown.model-select popover listview > row {
+    padding: 0;
+    margin: 2px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    box-shadow: none;
+    outline-offset: -2px;
+}
+dropdown.model-select popover listview > row:hover,
+dropdown.model-select popover listview > row:selected {
+    background: @canvas;
+    color: @ink;
+}
+.model-option { padding: 8px 10px; border-radius: 8px; }
+dropdown.model-select popover row:selected .model-option { background: @accent_soft; }
+.model-option-name { font-size: 12px; font-weight: 500; color: @ink_soft; }
+dropdown.model-select popover row:selected .model-option-name { color: @accent; font-weight: 600; }
+.model-option-id { font-size: 10px; font-weight: 400; color: @muted; }
+.model-option-check { color: @accent; }
 
 checkbutton.thinking-toggle {
     font-size: 11px;

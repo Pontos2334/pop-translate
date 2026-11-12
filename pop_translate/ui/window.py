@@ -60,6 +60,8 @@ logger = get_logger(__name__)
 BUILTIN_MODELS = (DEFAULTS["model"], "deepseek-v4-pro")
 BUILTIN_VISION_MODELS = (DEFAULTS["vision_model"],)
 WINDOW_WIDTH = 680
+WINDOW_HEIGHT = 600
+WINDOW_MAX_HEIGHT = 900
 BARE_DOMAIN_RE = re.compile(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}([/?#].*)?$")
 KWIN_DBUS_DEST = "org.kde.KWin"
 KWIN_SCRIPTING_PATH = "/Scripting"
@@ -144,7 +146,7 @@ class TranslateWindow(Gtk.ApplicationWindow):
         self.set_decorated(False)
         self.set_resizable(True)
         self.set_size_request(400, -1)
-        self.set_default_size(WINDOW_WIDTH, 280)
+        self.set_default_size(WINDOW_WIDTH, min(WINDOW_HEIGHT, self._window_height_limit()))
 
         self._load_css()
         self._build_ui()
@@ -2133,8 +2135,8 @@ class TranslateWindow(Gtk.ApplicationWindow):
     def _window_height_limit(self):
         monitor = self._current_monitor()
         if monitor is None:
-            return 720
-        return max(240, min(760, int(monitor.get_geometry().height * 0.78)))
+            return WINDOW_MAX_HEIGHT
+        return max(240, min(WINDOW_MAX_HEIGHT, int(monitor.get_geometry().height * 0.85)))
 
     def _content_height_limit(self):
         width = max(480, self.get_width())
@@ -2170,7 +2172,9 @@ class TranslateWindow(Gtk.ApplicationWindow):
             Gtk.Orientation.VERTICAL,
             width,
         )
-        target_h = min(max(180, natural_h), self._window_height_limit())
+        # Keep room for reading even while a short reply is loading; only
+        # shrink below the preferred height when the monitor requires it.
+        target_h = min(max(WINDOW_HEIGHT, natural_h), self._window_height_limit())
         target = (width, target_h)
         if target != self._last_auto_size:
             self._last_auto_size = target

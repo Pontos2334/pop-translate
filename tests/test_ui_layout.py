@@ -31,7 +31,7 @@ from pop_translate.i18n import BTN_STOP, CHAT_THINKING
 from pop_translate.ui.chat_panel import ChatPanel
 from pop_translate.ui.setup_dialog import SetupDialog
 from pop_translate.ui.widgets import load_styles
-from pop_translate.ui.window import TranslateWindow
+from pop_translate.ui.window import WINDOW_HEIGHT, TranslateWindow
 
 
 def settle(seconds=0.6):
@@ -234,7 +234,7 @@ def test_stream_updates_keep_short_user_bubble_compact(panel):
     assert "最后一行。" in buffer_text(view)
 
 
-def test_result_page_is_compact_with_fixed_toolbar(window):
+def test_result_page_has_reading_space_with_fixed_toolbar(window):
     window.translated = "好的设计是清晰的。"
     window._switch_tab("translate")
     settle(.3)
@@ -245,7 +245,7 @@ def test_result_page_is_compact_with_fixed_toolbar(window):
     assert window._status_bar.get_parent() is window.outer
     assert window._status_bar.get_visible()
     assert window._content_scroll.get_parent() is window.content_area
-    assert window.get_default_size().height < 500
+    assert window.get_default_size().height == min(WINDOW_HEIGHT, window._window_height_limit())
 
 
 def test_long_result_scrolls_inside_height_budget(window):

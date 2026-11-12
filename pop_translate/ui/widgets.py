@@ -14,7 +14,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gdk, GLib, Gtk, Pango
+from gi.repository import Gdk, GLib, GObject, Gtk, Pango
 
 from ..i18n import SPEED_LABEL
 
@@ -589,6 +589,10 @@ def model_dropdown(choices, selected, *, max_chars=20, css_classes=("model-selec
     dropdown.set_hexpand(False)
     dropdown.set_halign(Gtk.Align.START)
     dropdown.set_valign(Gtk.Align.CENTER)
+    display_names = {
+        "deepseek-flash": "DeepSeek Flash",
+        "deepseek-v4-pro": "DeepSeek Pro",
+    }
     factory = Gtk.SignalListItemFactory()
 
     def setup(_factory, item):
@@ -599,11 +603,53 @@ def model_dropdown(choices, selected, *, max_chars=20, css_classes=("model-selec
         item.set_child(label)
 
     def bind(_factory, item):
-        item.get_child().set_label(item.get_item().get_string())
+        name = item.get_item().get_string()
+        item.get_child().set_label(display_names.get(name, name))
 
     factory.connect("setup", setup)
     factory.connect("bind", bind)
     dropdown.set_factory(factory)
+
+    # The closed control stays compact; the menu has its own, wider rows so
+    # similar model IDs remain distinguishable instead of sharing an ellipsis.
+    menu_factory = Gtk.SignalListItemFactory()
+
+    def setup_menu(_factory, item):
+        row = Gtk.Box(spacing=16)
+        row.set_css_classes(["model-option"])
+        labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        labels.set_hexpand(True)
+        for css_class in ("model-option-name", "model-option-id"):
+            label = Gtk.Label(xalign=0)
+            label.set_css_classes([css_class])
+            label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+            label.set_max_width_chars(36)
+            label.set_single_line_mode(True)
+            labels.append(label)
+        row.append(labels)
+        check = icon_image("check-symbolic", 14)
+        check.set_css_classes(["model-option-check"])
+        check_slot = Gtk.Box()
+        check_slot.set_size_request(14, -1)
+        check_slot.set_valign(Gtk.Align.CENTER)
+        check_slot.append(check)
+        row.append(check_slot)
+        item.set_child(row)
+        item.bind_property("selected", check, "visible", GObject.BindingFlags.SYNC_CREATE)
+
+    def bind_menu(_factory, item):
+        name = item.get_item().get_string()
+        row = item.get_child()
+        row.set_tooltip_text(name)
+        title = row.get_first_child().get_first_child()
+        title.set_label(display_names.get(name, name))
+        subtitle = title.get_next_sibling()
+        subtitle.set_label(name)
+        subtitle.set_visible(name in display_names)
+
+    menu_factory.connect("setup", setup_menu)
+    menu_factory.connect("bind", bind_menu)
+    dropdown.set_list_factory(menu_factory)
     if selected in choices:
         dropdown.set_selected(choices.index(selected))
     dropdown.connect(
