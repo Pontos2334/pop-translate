@@ -317,19 +317,6 @@ def set_text_view_markdown(view, text):
 # -- scroll helpers --
 
 
-def is_at_bottom(adjustment, tolerance=2):
-    if adjustment is None:
-        return False
-    max_value = max(0, adjustment.get_upper() - adjustment.get_page_size())
-    return adjustment.get_value() >= max_value - tolerance
-
-
-def scroll_to_bottom(adjustment):
-    if adjustment is None:
-        return
-    adjustment.set_value(max(0, adjustment.get_upper() - adjustment.get_page_size()))
-
-
 def restore_after_relayout(adjustment, value, at_bottom=False):
     """等内容重新布局(adjustment "changed")后恢复滚动位置。
 
@@ -358,40 +345,14 @@ def restore_after_relayout(adjustment, value, at_bottom=False):
 
 
 def render_preserving_scroll(scrolled, update):
-    """重新渲染内容并尽量保持滚动位置；update() 执行实际内容更新。"""
+    """重新渲染并保持当前位置，即使原本在底部也不跟随新增内容。"""
     adjustment = scrolled.get_vadjustment() if scrolled is not None else None
     if adjustment is None:
         update()
         return
     value = adjustment.get_value()
-    at_bottom = is_at_bottom(adjustment)
     update()
-    restore_after_relayout(adjustment, value, at_bottom)
-
-
-class StickToBottom:
-    """滚动区自动贴底：新内容让可滚范围变大时，若原本贴底则保持贴底。
-
-    监听 vadjustment 的 "changed"(布局完成)而非 idle 猜测，修复发送
-    消息后因新气泡高度尚未计入 upper 而滚不到底的问题。
-    """
-
-    def __init__(self, scrolled):
-        self._adjustment = scrolled.get_vadjustment()
-        self._stick = True
-        self._adjustment.connect("changed", self._on_changed)
-        self._adjustment.connect("value-changed", self._on_value_changed)
-
-    def _on_changed(self, _adj):
-        if self._stick:
-            scroll_to_bottom(self._adjustment)
-
-    def _on_value_changed(self, _adj):
-        self._stick = is_at_bottom(self._adjustment)
-
-    def scroll_bottom(self):
-        self._stick = True
-        scroll_to_bottom(self._adjustment)
+    restore_after_relayout(adjustment, value)
 
 
 # -- speed stats --

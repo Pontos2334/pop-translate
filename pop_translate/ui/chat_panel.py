@@ -34,12 +34,12 @@ from .widgets import (
     STREAM_MARKDOWN_REFRESH_DELAY_MS,
     AutoHeightTextView,
     SpeedStats,
-    StickToBottom,
     attach_placeholder,
     empty_state,
     icon_button,
     model_dropdown,
     render_preserving_scroll,
+    restore_after_relayout,
 )
 
 CHAT_BUBBLE_MAX_WIDTH = 520
@@ -278,8 +278,9 @@ class ChatPanel(Gtk.Box):
             if last["thinking_container"] is not None:
                 last["thinking_container"].set_visible(False)
             if stream_view is not None:
-                stream_view.set_markdown_text(message)
-        self._stick.scroll_bottom()
+                render_preserving_scroll(
+                    self._scroll, lambda: stream_view.set_markdown_text(message)
+                )
 
     def cancel(self):
         if self._cancel_event is not None:
@@ -374,7 +375,6 @@ class ChatPanel(Gtk.Box):
         self._transcript.add_named(self._chat_list, "messages")
         self._transcript.set_visible_child_name("empty")
         self._scroll.set_child(self._transcript)
-        self._stick = StickToBottom(self._scroll)
 
         self.append(self._scroll)
         self._build_composer()
@@ -830,7 +830,8 @@ class ChatPanel(Gtk.Box):
             row.append(spacer)
 
         self._chat_list.append(row)
-        self._stick.scroll_bottom()
+        if role == "user":
+            restore_after_relayout(self._scroll.get_vadjustment(), 0, at_bottom=True)
 
         bubble_data = {
             "row": row,
