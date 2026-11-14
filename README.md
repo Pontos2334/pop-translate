@@ -157,7 +157,7 @@ pop-translate://explain?q={q}
 
 ## 🎨 主题样式自定义
 
-界面样式完全基于 GTK4 CSS 硬件加速节点实现，核心样式位于 `pop_translate/css.py` 中。默认采用柔和的紫藤/梅子浅色调，并**继承系统 GTK 字体**（不写死字体族、字重和基础字号），因此会与应用系统设置保持一致。您可以自由修改 `css.py` 中的设计变量，调整背景色、卡片阴影、圆角曲率或配色，以完美融入您的桌面美化（Rice）风格。
+界面样式完全基于 GTK4 CSS 硬件加速节点实现，核心样式位于 `pop_translate/css.py` 中。默认采用柔和的紫藤/梅子浅色调，并**继承系统 GTK 字体族**；译文、解释和聊天正文使用 16–18px 字号及中等字重，按钮和标签适当加粗，方便阅读。您可以自由修改 `css.py` 中的设计变量，调整背景色、卡片阴影、圆角曲率或配色，以完美融入您的桌面美化（Rice）风格。
 
 界面图标来自 [Material Design Icons](https://pictogrammers.com/library/mdi/)（Apache-2.0），统一存放于 `pop_translate/ui/icons/`，许可说明见同目录 `LICENSE`。
 

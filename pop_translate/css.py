@@ -1,8 +1,8 @@
 """Visual tokens and GTK4 component styles.
 
 Design intent: the translation/explanation is the hero. Chrome (header, tabs,
-source preview, settings) stays quiet, small and out of the way so the result
-gets the largest share of the popup's height. Every color/size below is a
+source preview, settings) stays compact while keeping every label readable.
+The result gets the largest share of the popup's height. Every color/size is a
 token: change it here, not in per-widget code.
 """
 
@@ -28,9 +28,9 @@ CSS = b"""
 /* ---- surfaces ---- */
 
 .translate-window, .setup-window {
-    /* No font-family/size here: inherit the desktop's GTK font exactly.
-       Weight follows the system's Medium (500) face; the result body resets
-       to 400 below because long-form reading benefits from a lighter stroke. */
+    /* Keep the desktop font family, with explicit readable sizes and medium
+       body weight. Controls use semibold to remain clear at smaller sizes. */
+    font-size: 15px;
     font-weight: 500;
     color: @ink;
     background-color: @surface;
@@ -57,8 +57,8 @@ CSS = b"""
 .tab-btn {
     min-height: 16px;
     min-width: 16px;
-    font-size: 12px;
-    font-weight: 500;
+    font-size: 14px;
+    font-weight: 600;
     padding: 5px 9px;
     border: none;
     border-radius: 7px;
@@ -104,12 +104,13 @@ CSS = b"""
 .content-box { padding: 12px 18px 16px; }
 .section-label {
     color: @muted;
-    font-size: 10px;
+    font-size: 13px;
     font-weight: 600;
 }
 .source-text, .source-text text {
     color: @ink_soft;
-    font-size: 12px;
+    font-size: 15px;
+    font-weight: 500;
     line-height: 1.5;
     background: transparent;
     border: none;
@@ -123,8 +124,8 @@ CSS = b"""
 }
 .result {
     color: @ink;
-    font-size: 16px;
-    font-weight: 400;
+    font-size: 18px;
+    font-weight: 500;
     line-height: 1.6;
     background: transparent;
     border: none;
@@ -132,24 +133,24 @@ CSS = b"""
 }
 .result text {
     color: @ink;
-    font-size: 16px;
+    font-size: 18px;
+    font-weight: 500;
     background: transparent;
 }
-.result-explain { font-size: 14px; font-weight: 400; }
-.result-explain text { font-size: 14px; }
+.result-explain, .result-explain text { font-size: 17px; font-weight: 500; }
 
-.stream-status { color: @muted; font-size: 11px; }
+.stream-status { color: @muted; font-size: 13px; }
 .stream-spinner { color: @accent; }
 
-.hint { color: @muted; font-size: 11.5px; padding: 2px 0; }
-.error-hint { color: @danger; font-size: 11.5px; padding: 2px 0; }
+.hint { color: @muted; font-size: 13px; padding: 2px 0; }
+.error-hint { color: @danger; font-size: 13px; padding: 2px 0; }
 .error-banner {
     background-color: @danger_soft;
     border: 1px solid #f0d2dc;
     border-radius: 8px;
     padding: 6px 10px;
 }
-.error-banner label { color: @danger; font-size: 11.5px; }
+.error-banner label { color: @danger; font-size: 13px; }
 
 .text-btn {
     min-height: 16px;
@@ -158,8 +159,8 @@ CSS = b"""
     border-radius: 6px;
     background: transparent;
     color: @muted;
-    font-size: 11px;
-    font-weight: 500;
+    font-size: 14px;
+    font-weight: 600;
     box-shadow: none;
 }
 .text-btn:hover { background-color: @canvas; color: @ink; }
@@ -172,8 +173,8 @@ CSS = b"""
 .action-btn {
     min-height: 18px;
     padding: 6px 11px;
-    font-size: 12px;
-    font-weight: 500;
+    font-size: 14px;
+    font-weight: 600;
     border: 1px solid @line;
     border-radius: 7px;
     background-color: @surface;
@@ -202,7 +203,7 @@ CSS = b"""
     border-top: 1px solid @line_soft;
     border-radius: 0 0 16px 16px;
 }
-.speed-label { color: @faint; font-size: 10px; }
+.speed-label { color: @muted; font-size: 13px; }
 
 dropdown.model-select { background: transparent; border: none; padding: 0; }
 dropdown.model-select > button {
@@ -212,7 +213,7 @@ dropdown.model-select > button {
     border-radius: 8px;
     background: @accent_soft;
     color: @accent;
-    font-size: 11px;
+    font-size: 14px;
     font-weight: 600;
     box-shadow: none;
 }
@@ -257,13 +258,14 @@ dropdown.model-select popover listview > row:selected {
 }
 .model-option { padding: 8px 10px; border-radius: 8px; }
 dropdown.model-select popover row:selected .model-option { background: @accent_soft; }
-.model-option-name { font-size: 12px; font-weight: 500; color: @ink_soft; }
+.model-option-name { font-size: 14px; font-weight: 600; color: @ink_soft; }
 dropdown.model-select popover row:selected .model-option-name { color: @accent; font-weight: 600; }
-.model-option-id { font-size: 10px; font-weight: 400; color: @muted; }
+.model-option-id { font-size: 13px; font-weight: 500; color: @muted; }
 .model-option-check { color: @accent; }
 
 checkbutton.thinking-toggle {
-    font-size: 11px;
+    font-size: 14px;
+    font-weight: 600;
     color: @muted;
     padding: 2px 4px;
     border-radius: 6px;
@@ -288,8 +290,8 @@ checkbutton.thinking-toggle:checked { color: @accent; }
     border-radius: 5px;
     background: transparent;
     color: @muted;
-    font-size: 11px;
-    font-weight: 500;
+    font-size: 14px;
+    font-weight: 600;
     box-shadow: none;
 }
 .mode-btn:hover { color: @ink; }
@@ -307,8 +309,8 @@ checkbutton.thinking-toggle:checked { color: @accent; }
     border-radius: 6px;
     background-color: transparent;
     color: @muted;
-    font-size: 10.5px;
-    font-weight: 500;
+    font-size: 14px;
+    font-weight: 600;
     box-shadow: none;
 }
 .chip-toggle:hover { background-color: @canvas; color: @ink; }
@@ -327,7 +329,7 @@ checkbutton.thinking-toggle:checked { color: @accent; }
     border-color: #c8b6e0;
     box-shadow: 0 0 0 2px rgba(110, 75, 149, 0.10);
 }
-.source-edit text { background: transparent; color: @ink; font-size: 12.5px; }
+.source-edit text { background: transparent; color: @ink; font-size: 16px; font-weight: 500; }
 
 /* ---- chat ---- */
 
@@ -341,7 +343,8 @@ checkbutton.thinking-toggle:checked { color: @accent; }
 .chat-bubble-ai { background: transparent; padding: 0; }
 .message-text, .message-text text {
     color: @ink;
-    font-size: 13px;
+    font-size: 16px;
+    font-weight: 500;
     line-height: 1.6;
     background: transparent;
     border: none;
@@ -349,13 +352,14 @@ checkbutton.thinking-toggle:checked { color: @accent; }
 }
 .chat-bubble-user .message-text, .chat-bubble-user .message-text text {
     color: #3f334d;
-    font-size: 12.5px;
+    font-size: 16px;
 }
 .chat-bubble-actions { margin-top: 2px; }
 .chat-bubble-action-btn {
     min-height: 12px;
     padding: 1px 5px;
-    font-size: 10px;
+    font-size: 13px;
+    font-weight: 600;
     border: none;
     border-radius: 4px;
     color: @muted;
@@ -366,7 +370,8 @@ checkbutton.thinking-toggle:checked { color: @accent; }
 .chat-bubble-action-btn:hover { color: @accent; background-color: @accent_soft; }
 .chat-bubble-action-btn:disabled { color: #c3bccd; }
 .chat-bubble-edit-view, .chat-bubble-edit-view text {
-    font-size: 12.5px;
+    font-size: 16px;
+    font-weight: 500;
     line-height: 1.5;
     background: transparent;
     color: @ink;
@@ -375,9 +380,10 @@ checkbutton.thinking-toggle:checked { color: @accent; }
 }
 .chat-bubble-edit-sw { background: transparent; border: none; }
 
-.chat-thinking-expander { margin-bottom: 2px; font-size: 10.5px; color: @muted; }
+.chat-thinking-expander { margin-bottom: 2px; font-size: 13px; font-weight: 600; color: @muted; }
 .chat-bubble-thinking-text, .chat-bubble-thinking-text text {
-    font-size: 11.5px;
+    font-size: 14px;
+    font-weight: 500;
     line-height: 1.55;
     color: @muted;
     background: transparent;
@@ -408,13 +414,13 @@ checkbutton.thinking-toggle:checked { color: @accent; }
     box-shadow: 0 0 0 2px rgba(110, 75, 149, 0.10);
 }
 .composer-card scrolledwindow { border: none; background: transparent; }
-.chat-input-view { font-size: 12.5px; background: transparent; color: @ink; padding: 7px 0; }
-.chat-input-view text { background: transparent; color: @ink; }
-.chat-input-placeholder { font-size: 12.5px; color: #9b93a8; }
+.chat-input-view { font-size: 16px; font-weight: 500; background: transparent; color: @ink; padding: 7px 0; }
+.chat-input-view text { background: transparent; color: @ink; font-weight: 500; }
+.chat-input-placeholder { font-size: 16px; color: @muted; }
 .chat-send {
     min-height: 16px;
     padding: 4px 12px;
-    font-size: 11px;
+    font-size: 14px;
     font-weight: 600;
     border: 1px solid @accent;
     border-radius: 6px;
@@ -447,8 +453,8 @@ menubutton.vision-thumb > button {
 }
 menubutton.vision-thumb > button:hover { border-color: #d8cde5; }
 .vision-image { border-radius: 5px; }
-.attachment-title { font-size: 11px; font-weight: 600; color: @ink; }
-.attachment-hint { font-size: 10.5px; color: @muted; }
+.attachment-title { font-size: 14px; font-weight: 600; color: @ink; }
+.attachment-hint { font-size: 13px; color: @muted; }
 
 /* ---- empty states ---- */
 
@@ -459,8 +465,8 @@ menubutton.vision-thumb > button:hover { border-color: #d8cde5; }
     padding: 8px;
     border-radius: 10px;
 }
-.empty-state-title { font-size: 14px; font-weight: 600; color: @ink; }
-.empty-state-hint { font-size: 11.5px; color: @muted; }
+.empty-state-title { font-size: 18px; font-weight: 600; color: @ink; }
+.empty-state-hint { font-size: 14px; color: @muted; }
 
 /* ---- overlays ---- */
 
@@ -471,12 +477,12 @@ popover.background > contents {
     background-color: @surface;
     box-shadow: 0 10px 28px rgba(52, 33, 68, 0.16);
 }
-.help-title { font-size: 12px; font-weight: 600; color: @ink; }
-.help-row { font-size: 11px; color: @ink_soft; }
-.help-desc { font-size: 11px; color: @muted; }
+.help-title { font-size: 15px; font-weight: 600; color: @ink; }
+.help-row { font-size: 14px; color: @ink_soft; }
+.help-desc { font-size: 14px; color: @muted; }
 .kbd {
     font-family: "monospace";
-    font-size: 10px;
+    font-size: 13px;
     color: @ink_soft;
     background-color: @canvas;
     border: 1px solid @line;
@@ -488,12 +494,13 @@ popover.background > contents {
 
 .setup-content { padding: 20px 24px 16px; }
 .setup-header { margin-bottom: 2px; }
-.setup-title { font-size: 17px; font-weight: 700; color: @ink; }
-.setup-description { color: @muted; font-size: 11.5px; margin-bottom: 2px; }
+.setup-title { font-size: 20px; font-weight: 700; color: @ink; }
+.setup-description { color: @muted; font-size: 14px; margin-bottom: 2px; }
 .setup-field { margin-top: 3px; }
-.setup-label { font-size: 10.5px; font-weight: 600; color: @muted; }
+.setup-label { font-size: 14px; font-weight: 600; color: @muted; }
 .setup-entry {
-    font-size: 12.5px;
+    font-size: 16px;
+    font-weight: 500;
     padding: 7px 10px;
     border: 1px solid @line;
     border-radius: 7px;
@@ -514,7 +521,8 @@ popover.background > contents {
 .setup-cancel {
     min-height: 18px;
     padding: 6px 12px;
-    font-size: 12px;
+    font-size: 14px;
+    font-weight: 600;
     border: 1px solid @line;
     border-radius: 7px;
     background-color: @surface;
@@ -525,7 +533,7 @@ popover.background > contents {
 .setup-save {
     min-height: 18px;
     padding: 6px 14px;
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 600;
     border: 1px solid @accent;
     border-radius: 7px;

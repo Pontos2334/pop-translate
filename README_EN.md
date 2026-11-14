@@ -157,7 +157,7 @@ All settings can be customized through the GUI setup or override via environment
 
 ## 🎨 Themes & Styling
 
-The interface features custom styling located in `pop_translate/css.py`, built on hardware-accelerated GTK4 CSS nodes. It uses a soft plum/lavender light palette and **inherits the system GTK font** (no hard-coded family, weight, or base size), so it matches your desktop settings. You can edit the design tokens in `css.py` to change the palette, shadow, roundness, or typography.
+The interface features custom styling located in `pop_translate/css.py`, built on hardware-accelerated GTK4 CSS nodes. It uses a soft plum/lavender light palette and **inherits the system GTK font family**, with 16–18px medium-weight text for translations, explanations, and chat, plus semibold buttons and labels for readability. You can edit the design tokens in `css.py` to change the palette, shadow, roundness, or typography.
 
 UI icons come from [Material Design Icons](https://pictogrammers.com/library/mdi/) (Apache-2.0) and live in `pop_translate/ui/icons/`; see the `LICENSE` file in that directory.
 
